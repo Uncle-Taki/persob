@@ -1,0 +1,491 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>پرسو | سامانه هوشمند کشف قیمت و پایش بازار تلگرام</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+</head>
+<body>
+  <div class="layout">
+    <!-- Sidebar -->
+    <aside class="sidebar">
+      <div class="logo">
+        <div class="logo-badge">P</div>
+        <div>
+          <h2>پِرسو (Perso)</h2>
+          <span class="subtext">سامانه هوشمند پایش بازار</span>
+        </div>
+      </div>
+
+      <nav class="nav-menu">
+        <a href="#dashboard" class="nav-item active" onclick="switchTab('dashboard')">
+          <span class="icon">📊</span> داشبورد و آمار
+        </a>
+        <a href="#offers" class="nav-item" onclick="switchTab('offers')">
+          <span class="icon">🏷️</span> آگهی‌ها و پیشنهادها
+        </a>
+        <a href="#interests" class="nav-item" onclick="switchTab('interests')">
+          <span class="icon">⭐</span> لیست علاقه‌مندی‌ها
+        </a>
+        <a href="#watch-sources" class="nav-item" onclick="switchTab('watch-sources')">
+          <span class="icon">📡</span> منابع تحت پایش (تلگرام)
+        </a>
+        <a href="#conversations" class="nav-item" onclick="switchTab('conversations')">
+          <span class="icon">💬</span> مکالمات و تعاملات
+        </a>
+      </nav>
+
+      <div class="sidebar-footer">
+        <div class="status-indicator">
+          <span class="dot online"></span>
+          <span>سرویس پایش تلگرام: فعال</span>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Main Content Area -->
+    <main class="main-content">
+      <header class="topbar">
+        <div class="page-title">
+          <h1 id="current-tab-title">داشبورد خلاصه بازار</h1>
+          <span class="badge badge-info">فاز ۱: جریان خرید (Buy Workflow)</span>
+        </div>
+        <div class="user-profile">
+          <div class="avatar">ب</div>
+          <span>خریدار تستی (demo_buyer)</span>
+        </div>
+      </header>
+
+      <div class="content-body">
+        <!-- Tab 1: Dashboard -->
+        <section id="tab-dashboard" class="tab-pane active">
+          <!-- Summary Metric Cards -->
+          <div class="metrics-grid">
+            <div class="card metric-card">
+              <span class="metric-icon">📦</span>
+              <div class="metric-data">
+                <span class="metric-label">کالاهای تحت رصد</span>
+                <span class="metric-value" id="metric-products">۵</span>
+              </div>
+            </div>
+            <div class="card metric-card">
+              <span class="metric-icon">🏷️</span>
+              <div class="metric-data">
+                <span class="metric-label">آگهی‌های فعال فروش</span>
+                <span class="metric-value" id="metric-offers">۱۲</span>
+              </div>
+            </div>
+            <div class="card metric-card">
+              <span class="metric-icon">📢</span>
+              <div class="metric-data">
+                <span class="metric-label">کانال‌ها و گروه‌های فعال</span>
+                <span class="metric-value" id="metric-sources">۳</span>
+              </div>
+            </div>
+            <div class="card metric-card">
+              <span class="metric-icon">💬</span>
+              <div class="metric-data">
+                <span class="metric-label">مکالمات در انتظار تأیید</span>
+                <span class="metric-value" id="metric-conversations">۲</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Product Statistics & Analytics -->
+          <div class="grid-2-col">
+            <div class="card">
+              <div class="card-header">
+                <h3>تحلیل قیمت محصول برگزیده</h3>
+                <select id="analytics-product-select" onchange="loadProductAnalytics()">
+                  <option value="22222222-2222-2222-2222-222222222221">iPhone 15 Pro (آیفون ۱۵ پرو)</option>
+                  <option value="22222222-2222-2222-2222-222222222223">Samsung S24 Ultra (سامسونگ اس ۲۴)</option>
+                </select>
+              </div>
+              <div class="card-body" id="analytics-container">
+                <div class="stats-row">
+                  <div class="stat-box">
+                    <span class="lbl">کمترین قیمت</span>
+                    <span class="val text-success" id="stat-min">-</span>
+                  </div>
+                  <div class="stat-box">
+                    <span class="lbl">قیمت میانه (Median)</span>
+                    <span class="val text-primary" id="stat-median">-</span>
+                  </div>
+                  <div class="stat-box">
+                    <span class="lbl">بیشترین قیمت</span>
+                    <span class="val text-danger" id="stat-max">-</span>
+                  </div>
+                </div>
+                <div class="methodology-note" id="stat-methodology">
+                  روش محاسبه: فیلتر داده‌های پرت آماری (IQR) از آگهی‌های تأییدشده فروشندگان
+                </div>
+              </div>
+            </div>
+
+            <div class="card">
+              <div class="card-header">
+                <h3>برترین پیشنهادهای خرید (بهترین امتیاز)</h3>
+              </div>
+              <div class="card-body">
+                <div id="top-deals-list" class="deals-list">
+                  <!-- Injected via JS -->
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Tab 2: Offers -->
+        <section id="tab-offers" class="tab-pane">
+          <div class="card">
+            <div class="card-header">
+              <h3>فهرست آگهی‌های استخراج‌شده فروشندگان</h3>
+              <div class="filter-controls">
+                <select id="filter-sort-by" onchange="loadOffers()">
+                  <option value="best_offer">مرتب‌سازی: بهترین پیشنهاد (Best Offer)</option>
+                  <option value="lowest_price">ارزان‌ترین قیمت</option>
+                  <option value="newest">جدیدترین آگهی‌ها</option>
+                  <option value="confidence">بیشترین دقت استخراج</option>
+                </select>
+              </div>
+            </div>
+            <div class="card-body table-responsive">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>کالا و مشخصات</th>
+                    <th>وضعیت</th>
+                    <th>قیمت استخراج‌شده</th>
+                    <th>محل فروشنده</th>
+                    <th>امتیاز شفاف</th>
+                    <th>اقدام</th>
+                  </tr>
+                </thead>
+                <tbody id="offers-table-body">
+                  <!-- Populated via API -->
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <!-- Tab 3: Interests -->
+        <section id="tab-interests" class="tab-pane">
+          <div class="card">
+            <div class="card-header">
+              <h3>لیست علاقه‌مندی‌های خرید کاربر</h3>
+              <button class="btn btn-primary" onclick="showAddInterestModal()">+ افزودن کالای جدید</button>
+            </div>
+            <div class="card-body">
+              <div id="interests-grid" class="interests-grid">
+                <!-- Populated via API -->
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Tab 4: Watch Sources -->
+        <section id="tab-watch-sources" class="tab-pane">
+          <div class="card">
+            <div class="card-header">
+              <h3>کانال‌ها و گروه‌های تحت پایش تلگرام</h3>
+              <button class="btn btn-primary" onclick="showAddSourceModal()">+ افزودن کانال یا گروه</button>
+            </div>
+            <div class="card-body table-responsive">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>نام منبع</th>
+                    <th>شناسه چت تلگرام</th>
+                    <th>نام کاربری</th>
+                    <th>نوع منبع</th>
+                    <th>وضعیت پایش</th>
+                    <th>عملیات</th>
+                  </tr>
+                </thead>
+                <tbody id="sources-table-body">
+                  <!-- Populated via API -->
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <!-- Tab 5: Conversations -->
+        <section id="tab-conversations" class="tab-pane">
+          <div class="card">
+            <div class="card-header">
+              <h3>فرآیندهای ارتباط با فروشنده (تکمیل مشخصات ناقص)</h3>
+            </div>
+            <div class="card-body table-responsive">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>شناسه آگهی</th>
+                    <th>فروشنده</th>
+                    <th>فیلدهای ناقص</th>
+                    <th>وضعیت تعامل</th>
+                    <th>سؤالات پرسیده‌شده</th>
+                    <th>عملیات تأیید کاربر</th>
+                  </tr>
+                </thead>
+                <tbody id="conversations-table-body">
+                  <!-- Populated via API -->
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+      </div>
+    </main>
+  </div>
+
+  <script>
+    const API_BASE = window.location.origin;
+
+    function switchTab(tabId) {
+      document.querySelectorAll('.tab-pane').forEach(el => el.classList.remove('active'));
+      document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
+      
+      const targetPane = document.getElementById('tab-' + tabId);
+      if (targetPane) targetPane.classList.add('active');
+
+      const titles = {
+        'dashboard': 'داشبورد خلاصه بازار',
+        'offers': 'آگهی‌ها و پیشنهادها',
+        'interests': 'لیست علاقه‌مندی‌ها',
+        'watch-sources': 'منابع تحت پایش تلگرام',
+        'conversations': 'مکالمات و تعاملات'
+      };
+      document.getElementById('current-tab-title').innerText = titles[tabId] || 'داشبورد';
+
+      if (tabId === 'dashboard') loadDashboard();
+      if (tabId === 'offers') loadOffers();
+      if (tabId === 'interests') loadInterests();
+      if (tabId === 'watch-sources') loadWatchSources();
+      if (tabId === 'conversations') loadConversations();
+    }
+
+    async function loadDashboard() {
+      try {
+        const res = await fetch(`${API_BASE}/api/v1/dashboard/summary`);
+        if (res.ok) {
+          const json = await res.json();
+          const d = json.data || {};
+          document.getElementById('metric-products').innerText = d.total_tracked_products || 0;
+          document.getElementById('metric-offers').innerText = d.total_active_offers || 0;
+          document.getElementById('metric-sources').innerText = d.total_watch_sources || 0;
+          document.getElementById('metric-conversations').innerText = d.active_conversations || 0;
+        }
+        loadProductAnalytics();
+        loadTopDeals();
+      } catch (err) {
+        console.error('Error loading dashboard:', err);
+      }
+    }
+
+    async function loadProductAnalytics() {
+      const pId = document.getElementById('analytics-product-select').value;
+      try {
+        const res = await fetch(`${API_BASE}/api/v1/analytics/prices?product_id=${pId}`);
+        if (res.ok) {
+          const json = await res.json();
+          const stats = json.data.statistics || {};
+          document.getElementById('stat-min').innerText = formatToman(stats.min_price);
+          document.getElementById('stat-median').innerText = formatToman(stats.median_price);
+          document.getElementById('stat-max').innerText = formatToman(stats.max_price);
+          document.getElementById('stat-methodology').innerText = stats.methodology || '';
+        }
+      } catch (err) {
+        console.error(err);
+      }
+    }
+
+    async function loadTopDeals() {
+      try {
+        const res = await fetch(`${API_BASE}/api/v1/analytics/offers`);
+        if (res.ok) {
+          const json = await res.json();
+          const deals = json.data.top_deals || [];
+          const container = document.getElementById('top-deals-list');
+          if (deals.length === 0) {
+            container.innerHTML = '<p class="text-muted">هنوز پیشنهادی ثبت نشده است.</p>';
+            return;
+          }
+          container.innerHTML = deals.slice(0, 4).map(d => `
+            <div class="deal-item">
+              <div>
+                <strong>${d.offer.model || d.offer.brand || 'کالا'}</strong>
+                <div class="subtext">${d.offer.seller_area || d.offer.seller_city || 'تهران'} | وضعیت: ${d.offer.condition}</div>
+              </div>
+              <div class="deal-right">
+                <span class="price-tag">${formatToman(d.offer.price_amount)}</span>
+                <span class="score-badge">امتیاز: ${d.score_breakdown.final_score}</span>
+              </div>
+            </div>
+          `).join('');
+        }
+      } catch (err) {
+        console.error(err);
+      }
+    }
+
+    async function loadOffers() {
+      const sortBy = document.getElementById('filter-sort-by').value;
+      try {
+        const res = await fetch(`${API_BASE}/api/v1/offers?sort_by=${sortBy}&with_scores=true`);
+        if (res.ok) {
+          const json = await res.json();
+          const list = json.data || [];
+          const tbody = document.getElementById('offers-table-body');
+          if (list.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="6" class="text-center">هیچ آگهی فعالی یافت نشد.</td></tr>';
+            return;
+          }
+          tbody.innerHTML = list.map(item => {
+            const o = item.offer || item;
+            const s = item.score_breakdown || {};
+            return `
+              <tr>
+                <td><strong>${o.brand || ''} ${o.model || ''}</strong></td>
+                <td><span class="badge badge-info">${o.condition}</span></td>
+                <td><strong class="text-success">${formatToman(o.price_amount)}</strong></td>
+                <td>${o.seller_area || o.seller_city || 'نامشخص'}</td>
+                <td>
+                  <span class="score-pill" title="${s.explanation || ''}">
+                    ${s.final_score ? s.final_score + ' / ۱۰۰' : '-'}
+                  </span>
+                </td>
+                <td><button class="btn btn-sm btn-outline" onclick="alert('${(s.explanation || '').replace(/'/g, "\\'")}')">مشاهده شفافیت</button></td>
+              </tr>
+            `;
+          }).join('');
+        }
+      } catch (err) {
+        console.error(err);
+      }
+    }
+
+    async function loadInterests() {
+      try {
+        const res = await fetch(`${API_BASE}/api/v1/interests`);
+        if (res.ok) {
+          const json = await res.json();
+          const list = json.data || [];
+          const grid = document.getElementById('interests-grid');
+          if (list.length === 0) {
+            grid.innerHTML = '<p class="text-muted">هیچ کالایی در لیست علاقه‌مندی‌ها ثبت نشده است.</p>';
+            return;
+          }
+          grid.innerHTML = list.map(i => `
+            <div class="card interest-card">
+              <div class="interest-header">
+                <h4>${i.product ? i.product.name : 'کالا'}</h4>
+                <button class="btn-del" onclick="deleteInterest('${i.id}')">✕</button>
+              </div>
+              <div class="interest-body">
+                <span>دسته‌بندی: ${i.product ? i.product.category : '-'}</span>
+                <span class="badge badge-success">جریان خرید: فعال</span>
+              </div>
+            </div>
+          `).join('');
+        }
+      } catch (err) {
+        console.error(err);
+      }
+    }
+
+    async function loadWatchSources() {
+      try {
+        const res = await fetch(`${API_BASE}/api/v1/watch-sources`);
+        if (res.ok) {
+          const json = await res.json();
+          const list = json.data || [];
+          const tbody = document.getElementById('sources-table-body');
+          if (list.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="6" class="text-center">منبعی ثبت نشده است.</td></tr>';
+            return;
+          }
+          tbody.innerHTML = list.map(s => `
+            <tr>
+              <td><strong>${s.title}</strong></td>
+              <td><code>${s.telegram_chat_id}</code></td>
+              <td>@${s.username || '-'}</td>
+              <td>${s.source_type}</td>
+              <td><span class="badge badge-success">${s.monitoring_status}</span></td>
+              <td><button class="btn btn-sm btn-danger" onclick="deleteWatchSource('${s.id}')">حذف</button></td>
+            </tr>
+          `).join('');
+        }
+      } catch (err) {
+        console.error(err);
+      }
+    }
+
+    async function loadConversations() {
+      try {
+        const res = await fetch(`${API_BASE}/api/v1/conversations`);
+        if (res.ok) {
+          const json = await res.json();
+          const list = json.data || [];
+          const tbody = document.getElementById('conversations-table-body');
+          if (list.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="6" class="text-center">مکالمه‌ای وجود ندارد.</td></tr>';
+            return;
+          }
+          tbody.innerHTML = list.map(c => `
+            <tr>
+              <td><code>${c.id.substring(0, 8)}...</code></td>
+              <td>فروشنده: ${c.seller_id}</td>
+              <td>${(c.missing_fields || []).join('، ')}</td>
+              <td><span class="badge badge-warning">${c.state}</span></td>
+              <td>${c.questions_asked_count} از ${c.max_questions}</td>
+              <td>
+                ${c.state === 'AWAITING_APPROVAL' ? `<button class="btn btn-sm btn-primary" onclick="approveConv('${c.id}')">تأیید ارسال</button>` : ''}
+                ${c.state === 'ACTIVE' ? `<button class="btn btn-sm btn-outline" onclick="pauseConv('${c.id}')">توقف</button>` : ''}
+              </td>
+            </tr>
+          `).join('');
+        }
+      } catch (err) {
+        console.error(err);
+      }
+    }
+
+    async function approveConv(id) {
+      if (!confirm('آیا مایل به تأیید ارسال پیام به این فروشنده هستید؟')) return;
+      await fetch(`${API_BASE}/api/v1/conversations/${id}/approve`, { method: 'POST' });
+      loadConversations();
+    }
+
+    async function pauseConv(id) {
+      await fetch(`${API_BASE}/api/v1/conversations/${id}/pause`, { method: 'POST' });
+      loadConversations();
+    }
+
+    async function deleteInterest(id) {
+      if (!confirm('حذف شود؟')) return;
+      await fetch(`${API_BASE}/api/v1/interests/${id}`, { method: 'DELETE' });
+      loadInterests();
+    }
+
+    async function deleteWatchSource(id) {
+      if (!confirm('حذف شود؟')) return;
+      await fetch(`${API_BASE}/api/v1/watch-sources/${id}`, { method: 'DELETE' });
+      loadWatchSources();
+    }
+
+    function formatToman(amount) {
+      if (!amount || amount === 0) return 'توافقی / نامشخص';
+      return Number(amount).toLocaleString('fa-IR') + ' تومان';
+    }
+
+    // Initial load
+    window.onload = () => loadDashboard();
+  </script>
+</body>
+</html>

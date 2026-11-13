@@ -1,0 +1,350 @@
+openapi: 3.0.3
+info:
+  title: Perso Marketplace API
+  description: >
+    Backend API for Perso — Intelligent Telegram marketplace monitoring and product-price discovery platform.
+    Initial focus: Iranian electronic marketplace.
+  version: 1.0.0
+servers:
+  - url: http://localhost:8080
+    description: Local development server
+
+paths:
+  /health:
+    get:
+      summary: Health check
+      operationId: getHealth
+      responses:
+        '200':
+          description: Service is healthy
+
+  /ready:
+    get:
+      summary: Readiness probe (database and queue connectivity)
+      operationId: getReady
+      responses:
+        '200':
+          description: All dependencies are up and ready
+        '503':
+          description: One or more dependencies are down
+
+  /api/v1/interests:
+    get:
+      summary: List user interests
+      operationId: listInterests
+      responses:
+        '200':
+          description: List of registered product interests
+    post:
+      summary: Add a product to user interest list
+      operationId: createInterest
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [product_id]
+              properties:
+                product_id:
+                  type: string
+                  format: uuid
+      responses:
+        '201':
+          description: Interest created (Phase 1: buy_enabled=true, sell_enabled=false)
+
+  /api/v1/interests/{id}:
+    delete:
+      summary: Remove product from interest list
+      operationId: deleteInterest
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Interest deleted
+
+  /api/v1/watch-sources:
+    get:
+      summary: List monitored Telegram groups and channels
+      operationId: listWatchSources
+      responses:
+        '200':
+          description: List of watch sources
+    post:
+      summary: Add Telegram channel or group to watch list
+      operationId: createWatchSource
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [telegram_chat_id, title]
+              properties:
+                telegram_chat_id:
+                  type: integer
+                  format: int64
+                title:
+                  type: string
+                username:
+                  type: string
+                source_type:
+                  type: string
+                  enum: [channel, group, supergroup]
+      responses:
+        '201':
+          description: Watch source added (Phase 1: buy_enabled=true, sell_enabled=false)
+
+  /api/v1/watch-sources/{id}:
+    delete:
+      summary: Remove Telegram source from watch list
+      operationId: deleteWatchSource
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Watch source deleted
+
+  /api/v1/products:
+    get:
+      summary: List canonical products
+      operationId: listProducts
+      parameters:
+        - name: search
+          in: query
+          schema:
+            type: string
+        - name: category
+          in: query
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+      responses:
+        '200':
+          description: Products catalog list
+
+  /api/v1/products/{id}:
+    get:
+      summary: Get product details with aliases
+      operationId: getProduct
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Product details
+
+  /api/v1/products/{id}/statistics:
+    get:
+      summary: Get calculated price statistics and distribution for a product
+      operationId: getProductStatistics
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Price statistics (min, max, average, median, range, distribution, trend)
+
+  /api/v1/offers:
+    get:
+      summary: List seller offers
+      operationId: listOffers
+      parameters:
+        - name: product_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: brand
+          in: query
+          schema:
+            type: string
+        - name: condition
+          in: query
+          schema:
+            type: string
+        - name: min_price
+          in: query
+          schema:
+            type: integer
+        - name: max_price
+          in: query
+          schema:
+            type: integer
+        - name: sort_by
+          in: query
+          schema:
+            type: string
+            enum: [lowest_price, highest_price, newest, best_offer, confidence, freshness]
+        - name: with_scores
+          in: query
+          schema:
+            type: boolean
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+      responses:
+        '200':
+          description: List of seller offers
+
+  /api/v1/offers/{id}:
+    get:
+      summary: Get offer by ID with explainable score breakdown
+      operationId: getOffer
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Offer details with score breakdown
+
+  /api/v1/conversations:
+    get:
+      summary: List conversation outreach workflows
+      operationId: listConversations
+      parameters:
+        - name: state
+          in: query
+          schema:
+            type: string
+            enum: [NEW, AWAITING_APPROVAL, AWAITING_CONSENT, ACTIVE, WAITING_FOR_REPLY, COMPLETED, DECLINED, OPTED_OUT, PAUSED]
+        - name: limit
+          in: query
+          schema:
+            type: integer
+        - name: offset
+          in: query
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: List of conversations
+
+  /api/v1/conversations/{id}:
+    get:
+      summary: Get conversation state and full message history
+      operationId: getConversation
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Conversation state and chat history
+
+  /api/v1/conversations/{id}/approve:
+    post:
+      summary: Approve seller outreach conversation draft (human review gate)
+      operationId: approveConversation
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Conversation approved and activated
+
+  /api/v1/conversations/{id}/pause:
+    post:
+      summary: Pause an ongoing conversation
+      operationId: pauseConversation
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Conversation paused
+
+  /api/v1/conversations/{id}/close:
+    post:
+      summary: Close/complete a conversation
+      operationId: closeConversation
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Conversation closed
+
+  /api/v1/dashboard/summary:
+    get:
+      summary: Marketplace dashboard summary metrics
+      operationId: getDashboardSummary
+      responses:
+        '200':
+          description: Overall metrics summary
+
+  /api/v1/analytics/prices:
+    get:
+      summary: Price analytics and 30-day historical trend for product
+      operationId: getPriceAnalytics
+      parameters:
+        - name: product_id
+          in: query
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Price analytics and historical observations
+
+  /api/v1/analytics/offers:
+    get:
+      summary: Best-ranked deals and marketplace offers overview
+      operationId: getOfferAnalytics
+      responses:
+        '200':
+          description: Top deals and offers overview

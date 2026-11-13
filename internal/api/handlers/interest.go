@@ -1,0 +1,91 @@
+package handlers
+
+import (
+	"encoding/json"
+	"net/http"
+
+	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
+	"github.com/perso/perso-mind/internal/api/httputil"
+	"github.com/perso/perso-mind/internal/domain"
+	"github.com/perso/perso-mind/internal/storage/postgres"
+)
+
+type InterestHandler struct {
+	interestRepo *postgres.InterestRepo
+	productRepo  *postgres.ProductRepo
+}
+
+func NewInterestHandler(interestRepo *postgres.InterestRepo, productRepo *postgres.ProductRepo) *InterestHandler {
+	return &InterestHandler{
+		interestRepo: interestRepo,
+		productRepo:  productRepo,
+	}
+}
+
+func (h *InterestHandler) List(w http.ResponseWriter, r *http.Request) {
+	userID := httputil.GetUserIDFromContext(r.Context())
+
+	list, err := h.interestRepo.ListByUserID(r.Context(), userID)
+	if err != nil {
+		httputil.RespondError(w, http.StatusInternalServerError, "Failed to list interests: "+err.Error())
+		return
+	}
+
+	httputil.RespondJSON(w, http.StatusOK, list)
+}
+
+func (h *InterestHandler) Create(w http.ResponseWriter, r *http.Request) {
+	userID := httputil.GetUserIDFromContext(r.Context())
+
+	var req domain.CreateInterestRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		httputil.RespondError(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+
+	if req.ProductID == uuid.Nil {
+		httputil.RespondError(w, http.StatusBadRequest, "product_id is required")
+		return
+	}
+
+	// Verify product exists
+	product, err := h.productRepo.GetByID(r.Context(), req.ProductID)
+	if err != nil || product == nil {
+		httputil.RespondError(w, http.StatusNotFound, "Product not found")
+		return
+	}
+
+	interest := &domain.Interest{
+		ID:          uuid.New(),
+		UserID:      userID,
+		ProductID:   req.ProductID,
+		SellEnabled: false, // Phase 1: false
+		BuyEnabled:  true,  // Phase 1: true
+	}
+
+	if err := h.interestRepo.Create(r.Context(), interest); err != nil {
+		httputil.RespondError(w, http.StatusInternalServerError, "Failed to create interest: "+err.Error())
+		return
+	}
+
+	interest.Product = product
+	httputil.RespondJSON(w, http.StatusCreated, interest)
+}
+
+func (h *InterestHandler) Delete(w http.ResponseWriter, r *http.Request) {
+	userID := httputil.GetUserIDFromContext(r.Context())
+	idStr := chi.URLParam(r, "id")
+	id, err := uuid.Parse(idStr)
+	if err != nil {
+		httputil.RespondError(w, http.StatusBadRequest, "Invalid interest ID")
+		return
+	}
+
+	if err := h.interestRepo.Delete(r.Context(), id, userID); err != nil {
+		httputil.RespondError(w, http.StatusNotFound, err.Error())
+		return
+	}
+
+	httputil.RespondJSON(w, http.StatusOK, map[string]string{"message": "Interest deleted successfully"})
+}

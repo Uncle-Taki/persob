@@ -1,0 +1,189 @@
+services:
+  # 1. PostgreSQL - Structured Marketplace Catalog, Offers, and Analytics
+  postgres:
+    image: postgres:16-alpine
+    container_name: perso-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-perso}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-perso_secret_change_me}
+      POSTGRES_DB: ${POSTGRES_DB:-perso_db}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./scripts/seed.sql:/docker-entrypoint-initdb.d/02_seed.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-perso} -d ${POSTGRES_DB:-perso_db}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # 2. MongoDB - Raw Telegram Messages, Updates, and Conversation History
+  mongodb:
+    image: mongo:7.0
+    container_name: perso-mongodb
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USER:-perso_admin}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASS:-perso_admin_secret}
+      MONGO_INITDB_DATABASE: ${MONGODB_DATABASE:-perso_raw}
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # 3. Redis - Stream Queue for Ingestion and Message Workers
+  redis:
+    image: redis:7-alpine
+    container_name: perso-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # 4. Backend REST API
+  backend-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: perso-backend-api
+    restart: unless-stopped
+    command: ["api"]
+    environment:
+      - ENVIRONMENT=${ENVIRONMENT:-production}
+      - PORT=8080
+      - HOST=0.0.0.0
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_USER=${POSTGRES_USER:-perso}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-perso_secret_change_me}
+      - POSTGRES_DB=${POSTGRES_DB:-perso_db}
+      - POSTGRES_SSLMODE=disable
+      - MONGODB_URI=mongodb://${MONGO_ROOT_USER:-perso_admin}:${MONGO_ROOT_PASS:-perso_admin_secret}@mongodb:27017/${MONGODB_DATABASE:-perso_raw}?authSource=admin
+      - MONGODB_DATABASE=${MONGODB_DATABASE:-perso_raw}
+      - REDIS_ADDR=redis:6379
+      - REDIS_STREAM_KEY=perso:telegram:messages
+      - REDIS_CONSUMER_GROUP=perso:message_workers
+      - LLM_ENABLED=${LLM_ENABLED:-false}
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+      - GEMINI_MODEL=${GEMINI_MODEL:-gemini-2.5-flash}
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      mongodb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # 5. Telegram Ingestion Service (MTProto Collector)
+  telegram-collector:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: perso-telegram-collector
+    restart: unless-stopped
+    command: ["collector"]
+    environment:
+      - ENVIRONMENT=${ENVIRONMENT:-production}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_USER=${POSTGRES_USER:-perso}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-perso_secret_change_me}
+      - POSTGRES_DB=${POSTGRES_DB:-perso_db}
+      - POSTGRES_SSLMODE=disable
+      - MONGODB_URI=mongodb://${MONGO_ROOT_USER:-perso_admin}:${MONGO_ROOT_PASS:-perso_admin_secret}@mongodb:27017/${MONGODB_DATABASE:-perso_raw}?authSource=admin
+      - MONGODB_DATABASE=${MONGODB_DATABASE:-perso_raw}
+      - REDIS_ADDR=redis:6379
+      - REDIS_STREAM_KEY=perso:telegram:messages
+      - TELEGRAM_APP_ID=${TELEGRAM_APP_ID:-0}
+      - TELEGRAM_APP_HASH=${TELEGRAM_APP_HASH:-}
+      - TELEGRAM_PHONE_NUMBER=${TELEGRAM_PHONE_NUMBER:-}
+      - TELEGRAM_SESSION_DIR=/data/sessions
+      - TELEGRAM_SESSION_STORAGE_KEY=${TELEGRAM_SESSION_STORAGE_KEY:-perso-mtproto-session-encryption-key-32b!}
+      - TELEGRAM_MOCK_MODE=${TELEGRAM_MOCK_MODE:-false}
+    volumes:
+      - telegram_sessions:/data/sessions
+    depends_on:
+      postgres:
+        condition: service_healthy
+      mongodb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  # 6. Message Processing Worker
+  message-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: perso-message-worker
+    restart: unless-stopped
+    command: ["worker"]
+    environment:
+      - ENVIRONMENT=${ENVIRONMENT:-production}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_USER=${POSTGRES_USER:-perso}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-perso_secret_change_me}
+      - POSTGRES_DB=${POSTGRES_DB:-perso_db}
+      - POSTGRES_SSLMODE=disable
+      - MONGODB_URI=mongodb://${MONGO_ROOT_USER:-perso_admin}:${MONGO_ROOT_PASS:-perso_admin_secret}@mongodb:27017/${MONGODB_DATABASE:-perso_raw}?authSource=admin
+      - MONGODB_DATABASE=${MONGODB_DATABASE:-perso_raw}
+      - REDIS_ADDR=redis:6379
+      - REDIS_STREAM_KEY=perso:telegram:messages
+      - REDIS_CONSUMER_GROUP=perso:message_workers
+      - REDIS_CONSUMER_NAME=worker-instance-1
+      - WORKER_CONCURRENCY=4
+      - BATCH_SIZE=20
+      - LLM_ENABLED=${LLM_ENABLED:-false}
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+      - GEMINI_MODEL=${GEMINI_MODEL:-gemini-2.5-flash}
+      - CONVERSATION_AUTO_APPROVE=false
+    depends_on:
+      postgres:
+        condition: service_healthy
+      mongodb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  # 7. Frontend UI Dashboard
+  frontend:
+    image: nginx:alpine
+    container_name: perso-frontend
+    restart: unless-stopped
+    ports:
+      - "3000:80"
+    volumes:
+      - ./web:/usr/share/nginx/html:ro
+    depends_on:
+      - backend-api
+
+volumes:
+  postgres_data:
+  mongo_data:
+  redis_data:
+  telegram_sessions:

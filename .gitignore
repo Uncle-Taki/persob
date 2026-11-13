@@ -1,0 +1,35 @@
+# Binaries
+bin/
+dist/
+perso
+
+# Go
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+vendor/
+
+# Environment and secrets
+.env
+*.session
+*.session-journal
+session.json
+telegram_session.dat
+sessions/
+
+# IDE / Editor
+.idea/
+.vscode/
+*.swp
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
