@@ -9,10 +9,11 @@ import (
 type Classification string
 
 const (
-	ClassificationSeller    Classification = "seller"
-	ClassificationBuyer     Classification = "buyer"
-	ClassificationNeither   Classification = "neither"
-	ClassificationUncertain Classification = "uncertain"
+	ClassificationSeller     Classification = "seller"
+	ClassificationBuyer      Classification = "buyer"
+	ClassificationNeither    Classification = "neither"
+	ClassificationIrrelevant Classification = "irrelevant"
+	ClassificationUncertain  Classification = "uncertain"
 )
 
 type ProcessingStatus string
@@ -27,12 +28,18 @@ const (
 
 type TelegramMessage struct {
 	ID                primitive.ObjectID     `bson:"_id,omitempty" json:"id"`
+	SourceID          string                 `bson:"source_id,omitempty" json:"source_id,omitempty"`
 	TelegramMessageID int64                  `bson:"telegram_message_id" json:"telegram_message_id"`
 	TelegramChatID    int64                  `bson:"telegram_chat_id" json:"telegram_chat_id"`
+	TelegramPeerID    int64                  `bson:"telegram_peer_id,omitempty" json:"telegram_peer_id,omitempty"`
+	TopicID           *int64                 `bson:"topic_id,omitempty" json:"topic_id,omitempty"`
+	LinkedPostID      *int64                 `bson:"linked_post_id,omitempty" json:"linked_post_id,omitempty"`
 	ChatTitle         string                 `bson:"chat_title,omitempty" json:"chat_title,omitempty"`
 	ChatUsername      string                 `bson:"chat_username,omitempty" json:"chat_username,omitempty"`
 	ChatType          string                 `bson:"chat_type,omitempty" json:"chat_type,omitempty"`
+	SourceType        string                 `bson:"source_type,omitempty" json:"source_type,omitempty"`
 	SenderID          int64                  `bson:"sender_id" json:"sender_id"`
+	SenderType        string                 `bson:"sender_type,omitempty" json:"sender_type,omitempty"`
 	SenderUsername    string                 `bson:"sender_username,omitempty" json:"sender_username,omitempty"`
 	SenderDisplayName string                 `bson:"sender_display_name,omitempty" json:"sender_display_name,omitempty"`
 	MessageText       string                 `bson:"message_text" json:"message_text"`
@@ -109,4 +116,23 @@ type ProcessingJob struct {
 	LastError  string             `bson:"last_error,omitempty" json:"last_error,omitempty"`
 	CreatedAt  time.Time          `bson:"created_at" json:"created_at"`
 	UpdatedAt  time.Time          `bson:"updated_at" json:"updated_at"`
+}
+
+type LLMExtraction struct {
+	ID                primitive.ObjectID `bson:"_id,omitempty" json:"id"`
+	MessageID         string             `bson:"message_id" json:"message_id"`
+	RawPrompt         string             `bson:"raw_prompt,omitempty" json:"raw_prompt,omitempty"`
+	RawResponse       string             `bson:"raw_response,omitempty" json:"raw_response,omitempty"`
+	ExtractedProducts []ExtractedProduct `bson:"extracted_products" json:"extracted_products"`
+	ExtractedPrices   []ExtractedPrice   `bson:"extracted_prices" json:"extracted_prices"`
+	ModelName         string             `bson:"model_name,omitempty" json:"model_name,omitempty"`
+	CreatedAt         time.Time          `bson:"created_at" json:"created_at"`
+}
+
+type ConversationEvent struct {
+	ID             primitive.ObjectID     `bson:"_id,omitempty" json:"id"`
+	ConversationID string                 `bson:"conversation_id" json:"conversation_id"`
+	EventType      string                 `bson:"event_type" json:"event_type"`
+	Payload        map[string]interface{} `bson:"payload" json:"payload"`
+	Timestamp      time.Time              `bson:"timestamp" json:"timestamp"`
 }

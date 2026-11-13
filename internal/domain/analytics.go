@@ -62,3 +62,27 @@ const (
 	SortByConfidence   SortBy = "confidence"
 	SortByFreshness    SortBy = "freshness"
 )
+
+type ConditionComparison struct {
+	Condition ItemCondition `json:"condition"`
+	AvgPrice  int64         `json:"avg_price"`
+	MinPrice  int64         `json:"min_price"`
+	MaxPrice  int64         `json:"max_price"`
+	Count     int           `json:"count"`
+}
+
+type CityComparison struct {
+	City     string `json:"city"`
+	AvgPrice int64  `json:"avg_price"`
+	MinPrice int64  `json:"min_price"`
+	MaxPrice int64  `json:"max_price"`
+	Count    int    `json:"count"`
+}
+
+type BrandComparison struct {
+	Brand    string `json:"brand"`
+	AvgPrice int64  `json:"avg_price"`
+	MinPrice int64  `json:"min_price"`
+	MaxPrice int64  `json:"max_price"`
+	Count    int    `json:"count"`
+}

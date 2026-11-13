@@ -68,3 +68,41 @@ func TestExtractFromMessage(t *testing.T) {
 		t.Errorf("Location Area = %s, want علاءالدین", result.Location.Area)
 	}
 }
+
+func TestExtractMultipleProducts(t *testing.T) {
+	extractor := extraction.NewExtractor()
+
+	multiProductMsg := &domain.TelegramMessage{
+		TelegramChatID:    -1001234567890,
+		TelegramMessageID: 777,
+		SenderID:          88888888,
+		MessageText: `لیست فروش ویژه فروشگاه پایتخت:
+- آیفون ۱۵ پرو ۲۵۶ گیگ در حد نو - قیمت ۹۸ میلیون تومان
+- سامسونگ اس ۲۴ اولترا ۵۱۲ گیگ آکبند - قیمت ۸۵ میلیون تومان
+- سونی پلی استیشن ۵ اسلیم کارکرده - قیمت ۳۲ میلیون تومان`,
+		MessageDate: time.Now(),
+		ReceivedAt:  time.Now(),
+	}
+
+	result := extractor.ExtractFromMessage(multiProductMsg)
+
+	if result.Classification != domain.ClassificationSeller {
+		t.Fatalf("Classification = %v, want %v", result.Classification, domain.ClassificationSeller)
+	}
+
+	if len(result.ExtractedProducts) < 3 {
+		t.Fatalf("Expected at least 3 extracted products, got %d", len(result.ExtractedProducts))
+	}
+
+	// Verify items
+	expectedBrands := map[string]bool{"Apple": false, "Samsung": false, "Sony": false}
+	for _, p := range result.ExtractedProducts {
+		expectedBrands[p.Brand] = true
+	}
+
+	for b, found := range expectedBrands {
+		if !found {
+			t.Errorf("Expected brand %s to be extracted from multi-item message", b)
+		}
+	}
+}

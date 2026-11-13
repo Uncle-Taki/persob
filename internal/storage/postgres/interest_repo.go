@@ -101,3 +101,28 @@ func (r *InterestRepo) FindInterestedUsers(ctx context.Context, productID uuid.U
 	}
 	return userIDs, nil
 }
+
+func (r *InterestRepo) FindInterestsByProductID(ctx context.Context, productID uuid.UUID) ([]domain.Interest, error) {
+	query := `
+		SELECT id, user_id, product_id, sell_enabled, buy_enabled, created_at
+		FROM interests
+		WHERE product_id = $1 AND buy_enabled = true
+	`
+	rows, err := r.db.Pool.Query(ctx, query, productID)
+	if err != nil {
+		return nil, fmt.Errorf("find interests by product: %w", err)
+	}
+	defer rows.Close()
+
+	var interests []domain.Interest
+	for rows.Next() {
+		var item domain.Interest
+		if err := rows.Scan(
+			&item.ID, &item.UserID, &item.ProductID, &item.SellEnabled, &item.BuyEnabled, &item.CreatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("scan interest: %w", err)
+		}
+		interests = append(interests, item)
+	}
+	return interests, nil
+}

@@ -1,10 +1,11 @@
 # ==========================================
 # Build Stage
 # ==========================================
-FROM golang:1.24-alpine AS builder
+FROM golang:alpine AS builder
 
 WORKDIR /app
 
+ENV GOTOOLCHAIN=auto
 RUN apk add --no-cache git ca-certificates tzdata
 
 COPY go.mod go.sum ./

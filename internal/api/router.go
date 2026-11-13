@@ -13,13 +13,14 @@ import (
 var openapiSpec []byte
 
 type Handlers struct {
-	HealthHandler       *handlers.HealthHandler
-	InterestHandler     *handlers.InterestHandler
-	WatchSourceHandler  *handlers.WatchSourceHandler
-	ProductHandler      *handlers.ProductHandler
-	OfferHandler        *handlers.OfferHandler
-	ConversationHandler *handlers.ConversationHandler
-	AnalyticsHandler    *handlers.AnalyticsHandler
+	HealthHandler         *handlers.HealthHandler
+	InterestHandler       *handlers.InterestHandler
+	WatchSourceHandler    *handlers.WatchSourceHandler
+	TelegramSourceHandler *handlers.TelegramSourceHandler
+	ProductHandler        *handlers.ProductHandler
+	OfferHandler          *handlers.OfferHandler
+	ConversationHandler   *handlers.ConversationHandler
+	AnalyticsHandler      *handlers.AnalyticsHandler
 }
 
 func NewRouter(h *Handlers) http.Handler {
@@ -60,6 +61,19 @@ func NewRouter(h *Handlers) http.Handler {
 			r.Delete("/{id}", h.WatchSourceHandler.Delete)
 		})
 
+		// Telegram Sources (Type-Aware Normalized Registry)
+		if h.TelegramSourceHandler != nil {
+			r.Route("/sources", func(r chi.Router) {
+				r.Post("/resolve", h.TelegramSourceHandler.Resolve)
+				r.Get("/", h.TelegramSourceHandler.List)
+				r.Post("/", h.TelegramSourceHandler.Create)
+				r.Get("/{id}", h.TelegramSourceHandler.Get)
+				r.Get("/{id}/capabilities", h.TelegramSourceHandler.GetCapabilities)
+				r.Put("/{id}/status", h.TelegramSourceHandler.UpdateStatus)
+				r.Delete("/{id}", h.TelegramSourceHandler.Delete)
+			})
+		}
+
 		// Products
 		r.Route("/products", func(r chi.Router) {
 			r.Get("/", h.ProductHandler.List)
@@ -72,6 +86,9 @@ func NewRouter(h *Handlers) http.Handler {
 			r.Get("/", h.OfferHandler.List)
 			r.Get("/{id}", h.OfferHandler.GetByID)
 		})
+
+		// Matches
+		r.Get("/matches", h.OfferHandler.ListMatches)
 
 		// Conversations
 		r.Route("/conversations", func(r chi.Router) {
@@ -86,6 +103,9 @@ func NewRouter(h *Handlers) http.Handler {
 		r.Get("/dashboard/summary", h.AnalyticsHandler.DashboardSummary)
 		r.Get("/analytics/prices", h.AnalyticsHandler.PriceAnalytics)
 		r.Get("/analytics/offers", h.AnalyticsHandler.OfferAnalytics)
+		r.Get("/analytics/comparisons/condition", h.AnalyticsHandler.CompareCondition)
+		r.Get("/analytics/comparisons/city", h.AnalyticsHandler.CompareCity)
+		r.Get("/analytics/comparisons/brand", h.AnalyticsHandler.CompareBrand)
 	})
 
 	return r

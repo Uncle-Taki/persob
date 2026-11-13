@@ -14,12 +14,18 @@ import (
 
 type OfferHandler struct {
 	offerRepo       *postgres.OfferRepo
+	matchResultRepo *postgres.MatchResultRepo
 	analyticsEngine *analytics.Engine
 }
 
-func NewOfferHandler(offerRepo *postgres.OfferRepo, analyticsEngine *analytics.Engine) *OfferHandler {
+func NewOfferHandler(
+	offerRepo *postgres.OfferRepo,
+	matchResultRepo *postgres.MatchResultRepo,
+	analyticsEngine *analytics.Engine,
+) *OfferHandler {
 	return &OfferHandler{
 		offerRepo:       offerRepo,
+		matchResultRepo: matchResultRepo,
 		analyticsEngine: analyticsEngine,
 	}
 }
@@ -130,4 +136,28 @@ func (h *OfferHandler) GetByID(w http.ResponseWriter, r *http.Request) {
 		"offer":           offer,
 		"score_breakdown": score,
 	})
+}
+
+func (h *OfferHandler) ListMatches(w http.ResponseWriter, r *http.Request) {
+	userID := httputil.GetUserIDFromContext(r.Context())
+	q := r.URL.Query()
+	limit, _ := strconv.Atoi(q.Get("limit"))
+	offset, _ := strconv.Atoi(q.Get("offset"))
+
+	if limit <= 0 {
+		limit = 50
+	}
+
+	if h.matchResultRepo == nil {
+		httputil.RespondJSON(w, http.StatusOK, []domain.OfferMatchResult{})
+		return
+	}
+
+	matches, err := h.matchResultRepo.ListByUserID(r.Context(), userID, limit, offset)
+	if err != nil {
+		httputil.RespondError(w, http.StatusInternalServerError, "Failed to list matches: "+err.Error())
+		return
+	}
+
+	httputil.RespondJSON(w, http.StatusOK, matches)
 }

@@ -6,7 +6,6 @@ import (
 	"log/slog"
 	"regexp"
 	"strconv"
-	"strings"
 	"sync"
 	"time"
 
@@ -23,21 +22,24 @@ import (
 var floodWaitRegex = regexp.MustCompile(`FLOOD_WAIT_(\d+)`)
 
 type Collector struct {
-	cfg             *config.Config
-	sessionStorage  *EncryptedSessionStorage
-	watchSourceRepo *postgres.WatchSourceRepo
-	messagesRepo    *mongodb.MessagesRepo
-	updatesRepo     *mongodb.UpdatesRepo
-	producer        *queue.Producer
-	mockClient      *MockClient
-	tgClient        *telegram.Client
-	running         bool
-	mu              sync.Mutex
+	cfg                *config.Config
+	sessionStorage     *EncryptedSessionStorage
+	watchSourceRepo    *postgres.WatchSourceRepo
+	telegramSourceRepo *postgres.TelegramSourceRepo
+	messagesRepo       *mongodb.MessagesRepo
+	updatesRepo        *mongodb.UpdatesRepo
+	producer           *queue.Producer
+	mockClient         *MockClient
+	tgClient           *telegram.Client
+	resolver           *Resolver
+	running            bool
+	mu                 sync.Mutex
 }
 
 func NewCollector(
 	cfg *config.Config,
 	watchSourceRepo *postgres.WatchSourceRepo,
+	telegramSourceRepo *postgres.TelegramSourceRepo,
 	messagesRepo *mongodb.MessagesRepo,
 	updatesRepo *mongodb.UpdatesRepo,
 	producer *queue.Producer,
@@ -52,18 +54,22 @@ func NewCollector(
 	}
 
 	c := &Collector{
-		cfg:             cfg,
-		sessionStorage:  sessionStorage,
-		watchSourceRepo: watchSourceRepo,
-		messagesRepo:    messagesRepo,
-		updatesRepo:     updatesRepo,
-		producer:        producer,
+		cfg:                cfg,
+		sessionStorage:     sessionStorage,
+		watchSourceRepo:    watchSourceRepo,
+		telegramSourceRepo: telegramSourceRepo,
+		messagesRepo:       messagesRepo,
+		updatesRepo:        updatesRepo,
+		producer:           producer,
 	}
 
 	if cfg.TelegramMockMode || cfg.TelegramAppID == 0 {
 		slog.Info("initializing mock telegram client (mock mode or missing AppID)")
 		c.mockClient = NewMockClient()
 		c.mockClient.SetMessageHandler(c.processIncomingMessage)
+		c.resolver = NewResolver(nil, true)
+	} else {
+		c.resolver = NewResolver(nil, false)
 	}
 
 	return c, nil
@@ -152,6 +158,7 @@ func (c *Collector) runMTProtoLoop(ctx context.Context) error {
 
 	client := telegram.NewClient(c.cfg.TelegramAppID, c.cfg.TelegramAppHash, opts)
 	c.tgClient = client
+	c.resolver = NewResolver(client, false)
 
 	return client.Run(ctx, func(runCtx context.Context) error {
 		// Check authorization status
@@ -180,54 +187,62 @@ func (c *Collector) handleTelegramMessageClass(ctx context.Context, e tg.Entitie
 		return nil
 	}
 
-	chatID := extractPeerID(msg.PeerID)
-	if chatID == 0 {
+	peerID := extractPeerID(msg.PeerID)
+	if peerID == 0 {
 		return nil
 	}
 
-	// Compliance Check: verify chat is in configured watch sources
-	monitored, err := c.watchSourceRepo.IsChatMonitored(ctx, chatID)
-	if err != nil {
-		slog.Error("error checking watch source monitoring status", "chat_id", chatID, "error", err)
-		return nil
-	}
-
-	if !monitored {
-		// Ignore unconfigured channels/groups
-		return nil
-	}
-
-	// Extract sender info
-	var senderID int64
-	var senderUsername, senderDisplayName string
-
-	if msg.FromID != nil {
-		senderID = extractPeerID(msg.FromID)
-		if u, found := e.Users[senderID]; found {
-			senderUsername = u.Username
-			senderDisplayName = strings.TrimSpace(u.FirstName + " " + u.LastName)
+	// 1. Check normalized telegram_sources registry
+	var matchedSource *domain.TelegramSource
+	if c.telegramSourceRepo != nil {
+		activeSources, err := c.telegramSourceRepo.ListActiveSources(ctx)
+		if err == nil {
+			for _, s := range activeSources {
+				if s.TelegramPeerID == peerID || (s.LinkedDiscussionPeerID != nil && *s.LinkedDiscussionPeerID == peerID) {
+					matchedSource = s
+					break
+				}
+			}
 		}
 	}
 
-	var editDate *time.Time
-	if isEdit && msg.EditDate != 0 {
-		t := time.Unix(int64(msg.EditDate), 0)
-		editDate = &t
+	// 2. Fallback check to legacy watch sources
+	if matchedSource == nil && c.watchSourceRepo != nil {
+		monitored, err := c.watchSourceRepo.IsChatMonitored(ctx, peerID)
+		if err != nil {
+			slog.Error("error checking watch source monitoring status", "chat_id", peerID, "error", err)
+			return nil
+		}
+		if !monitored && c.mockClient == nil {
+			return nil
+		}
 	}
 
-	telegramMsg := &domain.TelegramMessage{
-		TelegramChatID:    chatID,
-		TelegramMessageID: int64(msg.ID),
-		ChatType:          extractPeerType(msg.PeerID),
-		SenderID:          senderID,
-		SenderUsername:    senderUsername,
-		SenderDisplayName: senderDisplayName,
-		MessageText:       msg.Message,
-		MessageDate:       time.Unix(int64(msg.Date), 0),
-		EditedDate:        editDate,
-		ReceivedAt:        time.Now(),
-		ProcessingStatus:  domain.ProcessingStatusPending,
-		ProcessingVersion: 1,
+	// 3. Adapt message using type-specific adapter
+	isDiscussion := false
+	sourceType := domain.TelegramSourceTypeSupergroup
+	if matchedSource != nil {
+		sourceType = matchedSource.SourceType
+		if matchedSource.LinkedDiscussionPeerID != nil && *matchedSource.LinkedDiscussionPeerID == peerID {
+			isDiscussion = true
+		}
+	}
+
+	adapter := GetIngestionAdapter(sourceType, isDiscussion)
+	telegramMsg, err := adapter.AdaptMessage(ctx, e, msg, matchedSource)
+	if err != nil {
+		slog.Error("failed to adapt telegram message", "error", err)
+		return nil
+	}
+
+	if isEdit && msg.EditDate != 0 {
+		t := time.Unix(int64(msg.EditDate), 0)
+		telegramMsg.EditedDate = &t
+	}
+
+	// Update sync checkpoint if matched source exists
+	if matchedSource != nil && c.telegramSourceRepo != nil {
+		_ = c.telegramSourceRepo.UpdateSyncCheckpoint(ctx, matchedSource.ID, int64(msg.ID), time.Now().UTC())
 	}
 
 	return c.processIncomingMessage(ctx, telegramMsg)
@@ -316,4 +331,8 @@ func HandleFloodWait(ctx context.Context, err error) (bool, error) {
 
 func (c *Collector) MockClient() *MockClient {
 	return c.mockClient
+}
+
+func (c *Collector) Resolver() *Resolver {
+	return c.resolver
 }

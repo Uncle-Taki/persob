@@ -13,6 +13,9 @@ import (
 //go:embed migrations/001_initial_schema.sql
 var initialSchemaSQL string
 
+//go:embed migrations/002_telegram_sources_and_marketplace.sql
+var enhancementSchemaSQL string
+
 type DB struct {
 	Pool *pgxpool.Pool
 }
@@ -62,6 +65,10 @@ func (db *DB) Migrate(ctx context.Context) error {
 
 	if _, err := tx.Exec(ctx, initialSchemaSQL); err != nil {
 		return fmt.Errorf("execute initial schema migration: %w", err)
+	}
+
+	if _, err := tx.Exec(ctx, enhancementSchemaSQL); err != nil {
+		return fmt.Errorf("execute enhancement schema migration: %w", err)
 	}
 
 	if err := tx.Commit(ctx); err != nil {

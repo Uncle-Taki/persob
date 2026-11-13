@@ -21,46 +21,55 @@ import (
 )
 
 type MessageProcessor struct {
-	cfg             *config.Config
-	messagesRepo    *mongodb.MessagesRepo
-	extractionRepo  *mongodb.ExtractionRepo
-	jobsRepo        *mongodb.JobsRepo
-	extractor       *extraction.Extractor
-	matcher         *matching.Matcher
-	offerRepo       *postgres.OfferRepo
-	productRepo     *postgres.ProductRepo
-	interestRepo    *postgres.InterestRepo
-	convManager     *conversation.Manager
-	analyticsEngine *analytics.Engine
-	llmProvider     llm.Provider
+	cfg                *config.Config
+	messagesRepo       *mongodb.MessagesRepo
+	extractionRepo     *mongodb.ExtractionRepo
+	llmExtractionsRepo *mongodb.LLMExtractionsRepo
+	jobsRepo           *mongodb.JobsRepo
+	extractor          *extraction.Extractor
+	matcher            *matching.Matcher
+	offerRepo          *postgres.OfferRepo
+	productRepo        *postgres.ProductRepo
+	interestRepo       *postgres.InterestRepo
+	sellerProfileRepo  *postgres.SellerProfileRepo
+	matchResultRepo    *postgres.MatchResultRepo
+	convManager        *conversation.Manager
+	analyticsEngine    *analytics.Engine
+	llmProvider        llm.Provider
 }
 
 func NewMessageProcessor(
 	cfg *config.Config,
 	messagesRepo *mongodb.MessagesRepo,
 	extractionRepo *mongodb.ExtractionRepo,
+	llmExtractionsRepo *mongodb.LLMExtractionsRepo,
 	jobsRepo *mongodb.JobsRepo,
 	matcher *matching.Matcher,
 	offerRepo *postgres.OfferRepo,
 	productRepo *postgres.ProductRepo,
 	interestRepo *postgres.InterestRepo,
+	sellerProfileRepo *postgres.SellerProfileRepo,
+	matchResultRepo *postgres.MatchResultRepo,
 	convManager *conversation.Manager,
 	analyticsEngine *analytics.Engine,
 	llmProvider llm.Provider,
 ) *MessageProcessor {
 	return &MessageProcessor{
-		cfg:             cfg,
-		messagesRepo:    messagesRepo,
-		extractionRepo:  extractionRepo,
-		jobsRepo:        jobsRepo,
-		extractor:       extraction.NewExtractor(),
-		matcher:         matcher,
-		offerRepo:       offerRepo,
-		productRepo:     productRepo,
-		interestRepo:    interestRepo,
-		convManager:     convManager,
-		analyticsEngine: analyticsEngine,
-		llmProvider:     llmProvider,
+		cfg:                cfg,
+		messagesRepo:       messagesRepo,
+		extractionRepo:     extractionRepo,
+		llmExtractionsRepo: llmExtractionsRepo,
+		jobsRepo:           jobsRepo,
+		extractor:          extraction.NewExtractor(),
+		matcher:            matcher,
+		offerRepo:          offerRepo,
+		productRepo:        productRepo,
+		interestRepo:       interestRepo,
+		sellerProfileRepo:  sellerProfileRepo,
+		matchResultRepo:    matchResultRepo,
+		convManager:        convManager,
+		analyticsEngine:    analyticsEngine,
+		llmProvider:        llmProvider,
 	}
 }
 
@@ -102,6 +111,41 @@ func (p *MessageProcessor) ProcessStreamMessage(ctx context.Context, msgID strin
 			slog.Warn("llm extraction failed, falling back to deterministic extraction", "error", llmErr)
 		} else {
 			extracted = llm.MergeDeterministicAndLLM(extracted, llmResp)
+
+			// Persist raw LLM extraction in MongoDB
+			if p.llmExtractionsRepo != nil {
+				llmExt := &domain.LLMExtraction{
+					MessageID:   fmt.Sprintf("%d_%d", msg.TelegramChatID, msg.TelegramMessageID),
+					RawPrompt:   msg.MessageText,
+					RawResponse: llmResp.RawAnalysis,
+					ModelName:   p.llmProvider.Name(),
+					CreatedAt:   time.Now().UTC(),
+				}
+				for _, prod := range llmResp.Products {
+					llmExt.ExtractedProducts = append(llmExt.ExtractedProducts, domain.ExtractedProduct{
+						Name:         prod.Name,
+						Brand:        prod.Brand,
+						Manufacturer: prod.Manufacturer,
+						Model:        prod.Model,
+						Variant:      prod.Variant,
+						Condition:    prod.Condition,
+						Quantity:     prod.Quantity,
+						Confidence:   prod.Confidence,
+						EvidenceSpan: prod.EvidenceSpan,
+					})
+				}
+				for _, pr := range llmResp.Prices {
+					llmExt.ExtractedPrices = append(llmExt.ExtractedPrices, domain.ExtractedPrice{
+						Amount:       pr.Amount,
+						Currency:     pr.Currency,
+						Raw:          pr.Raw,
+						Negotiable:   pr.Negotiable,
+						Confidence:   pr.Confidence,
+						EvidenceSpan: pr.EvidenceSpan,
+					})
+				}
+				_ = p.llmExtractionsRepo.Save(ctx, llmExt)
+			}
 		}
 	}
 
@@ -133,38 +177,6 @@ func (p *MessageProcessor) handleSellerAdvertisement(
 	msg *domain.TelegramMessage,
 	ext *domain.ExtractedMessage,
 ) error {
-	extProd := ext.ExtractedProducts[0]
-
-	// Match against catalog products
-	matchRes, err := p.matcher.MatchSellerProduct(ctx, &extProd)
-	if err != nil {
-		return fmt.Errorf("matching seller product: %w", err)
-	}
-
-	var productID *uuid.UUID
-	if matchRes.Matched {
-		productID = &matchRes.ProductID
-		slog.Info("matched seller product to catalog",
-			"product_name", matchRes.ProductName,
-			"match_level", matchRes.Level,
-			"confidence", matchRes.Confidence,
-		)
-	}
-
-	// Determine price
-	var priceAmount *int64
-	priceCurrency := domain.CurrencyToman
-	var priceRaw string
-	var priceConfidence float64
-
-	if len(ext.ExtractedPrices) > 0 {
-		p := ext.ExtractedPrices[0]
-		priceAmount = &p.Amount
-		priceCurrency = p.Currency
-		priceRaw = p.Raw
-		priceConfidence = p.Confidence
-	}
-
 	// Location
 	var city, area, locText string
 	if ext.Location != nil {
@@ -173,64 +185,161 @@ func (p *MessageProcessor) handleSellerAdvertisement(
 		locText = ext.Location.LocationText
 	}
 
-	sourceMsgID := fmt.Sprintf("%d_%d", msg.TelegramChatID, msg.TelegramMessageID)
+	// 1. Upsert Seller Profile into PostgreSQL
+	isOptedOut := false
+	if p.sellerProfileRepo != nil && msg.SenderID != 0 {
+		sellerProfile := &domain.SellerProfile{
+			SellerID:    msg.SenderID,
+			Username:    msg.SenderUsername,
+			DisplayName: msg.SenderDisplayName,
+			City:        city,
+			TehranArea:  area,
+			TotalOffers: len(ext.ExtractedProducts),
+		}
+		if err := p.sellerProfileRepo.Upsert(ctx, sellerProfile); err != nil {
+			slog.Warn("failed to upsert seller profile", "seller_id", msg.SenderID, "error", err)
+		}
 
-	offer := &domain.Offer{
-		ID:                   uuid.New(),
-		ProductID:            productID,
-		SourceMessageID:      sourceMsgID,
-		SellerID:             msg.SenderID,
-		Brand:                extProd.Brand,
-		Manufacturer:         extProd.Manufacturer,
-		Model:                extProd.Model,
-		Condition:            extProd.Condition,
-		Quantity:             extProd.Quantity,
-		PriceAmount:          priceAmount,
-		PriceCurrency:        priceCurrency,
-		PriceRaw:             priceRaw,
-		PriceConfidence:      priceConfidence,
-		Branded:              ext.Branded,
-		SellerCity:           city,
-		SellerArea:           area,
-		SellerLocationText:   locText,
-		ListingStatus:        domain.ListingStatusActive,
-		ExtractionConfidence: ext.Confidence,
-	}
-
-	// Upsert offer into PostgreSQL
-	if err := p.offerRepo.Create(ctx, offer); err != nil {
-		return fmt.Errorf("create offer: %w", err)
-	}
-
-	slog.Info("persisted seller offer to postgresql", "offer_id", offer.ID, "source_id", sourceMsgID)
-
-	// Detect missing fields for conversation management
-	var missingFields []domain.MissingField
-	if offer.PriceAmount == nil || *offer.PriceAmount == 0 {
-		missingFields = append(missingFields, domain.FieldPrice)
-	}
-	if offer.SellerCity == "" {
-		missingFields = append(missingFields, domain.FieldCity)
-	}
-	if offer.SellerCity == "تهران" && offer.SellerArea == "" {
-		missingFields = append(missingFields, domain.FieldTehranArea)
-	}
-
-	// Initialize conversation if missing fields exist
-	if len(missingFields) > 0 && p.convManager != nil {
-		_, err := p.convManager.InitConversation(ctx, offer, missingFields)
-		if err != nil {
-			slog.Warn("failed to initialize conversation for offer", "offer_id", offer.ID, "error", err)
+		if prof, err := p.sellerProfileRepo.GetByID(ctx, msg.SenderID); err == nil && prof != nil {
+			isOptedOut = prof.OptedOut
 		}
 	}
 
-	// Recalculate price statistics for product if matched
-	if productID != nil && p.analyticsEngine != nil {
-		go func(pID uuid.UUID) {
-			calcCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-			defer cancel()
-			_, _ = p.analyticsEngine.CalculateProductStatistics(calcCtx, pID)
-		}(*productID)
+	sourceMsgID := fmt.Sprintf("%d_%d", msg.TelegramChatID, msg.TelegramMessageID)
+
+	// 2. Process every extracted product (Multi-product support)
+	for i, extProd := range ext.ExtractedProducts {
+		// Match against catalog products
+		matchRes, err := p.matcher.MatchSellerProduct(ctx, &extProd)
+		if err != nil {
+			slog.Warn("matching seller product error", "error", err)
+		}
+
+		var productID *uuid.UUID
+		if matchRes != nil && matchRes.Matched {
+			productID = &matchRes.ProductID
+			slog.Info("matched seller product to catalog",
+				"product_name", matchRes.ProductName,
+				"match_level", matchRes.Level,
+				"confidence", matchRes.Confidence,
+			)
+		}
+
+		// Determine price for this item
+		var priceAmount *int64
+		priceCurrency := domain.CurrencyToman
+		var priceRaw string
+		var priceConfidence float64
+
+		if i < len(ext.ExtractedPrices) {
+			pr := ext.ExtractedPrices[i]
+			priceAmount = &pr.Amount
+			priceCurrency = pr.Currency
+			priceRaw = pr.Raw
+			priceConfidence = pr.Confidence
+		} else if len(ext.ExtractedPrices) > 0 {
+			pr := ext.ExtractedPrices[0]
+			priceAmount = &pr.Amount
+			priceCurrency = pr.Currency
+			priceRaw = pr.Raw
+			priceConfidence = pr.Confidence
+		}
+
+		offer := &domain.Offer{
+			ID:                   uuid.New(),
+			ProductID:            productID,
+			SourceMessageID:      sourceMsgID,
+			SellerID:             msg.SenderID,
+			Brand:                extProd.Brand,
+			Manufacturer:         extProd.Manufacturer,
+			Model:                extProd.Model,
+			Condition:            extProd.Condition,
+			Quantity:             extProd.Quantity,
+			PriceAmount:          priceAmount,
+			PriceCurrency:        priceCurrency,
+			PriceRaw:             priceRaw,
+			PriceConfidence:      priceConfidence,
+			Branded:              ext.Branded,
+			SellerCity:           city,
+			SellerArea:           area,
+			SellerLocationText:   locText,
+			ListingStatus:        domain.ListingStatusActive,
+			ExtractionConfidence: ext.Confidence,
+		}
+
+		// Upsert offer into PostgreSQL
+		if err := p.offerRepo.Create(ctx, offer); err != nil {
+			slog.Error("failed to create offer", "error", err)
+			continue
+		}
+
+		slog.Info("persisted seller offer to postgresql", "offer_id", offer.ID, "source_id", sourceMsgID, "product", extProd.Name)
+
+		// 3. Match against buyer interests and store offer_match_results
+		if productID != nil && p.matchResultRepo != nil && p.interestRepo != nil {
+			if interests, err := p.interestRepo.FindInterestsByProductID(ctx, *productID); err == nil {
+				for _, interest := range interests {
+					score := 85.0
+					if offer.Condition == domain.ConditionNew || offer.Condition == domain.ConditionLikeNew {
+						score += 10.0
+					}
+					if offer.PriceAmount != nil && *offer.PriceAmount > 0 {
+						score += 5.0
+					}
+
+					matchResult := &domain.OfferMatchResult{
+						ID:               uuid.New(),
+						OfferID:          offer.ID,
+						InterestID:       &interest.ID,
+						UserID:           interest.UserID,
+						ProductID:        *productID,
+						MatchScore:       score,
+						MatchExplanation: fmt.Sprintf("Matched %s (%s) against user interest", extProd.Name, extProd.Condition),
+						MatchedAttributes: map[string]interface{}{
+							"brand":     offer.Brand,
+							"model":     offer.Model,
+							"condition": string(offer.Condition),
+						},
+						UnmatchedAttributes: map[string]interface{}{},
+						CreatedAt:           time.Now().UTC(),
+					}
+					if err := p.matchResultRepo.Create(ctx, matchResult); err != nil {
+						slog.Warn("failed to create offer match result", "offer_id", offer.ID, "error", err)
+					}
+				}
+			}
+		}
+
+		// 5. Detect missing fields for conversation management (if not opted out)
+		if !isOptedOut {
+			var missingFields []domain.MissingField
+			if offer.PriceAmount == nil || *offer.PriceAmount == 0 {
+				missingFields = append(missingFields, domain.FieldPrice)
+			}
+			if offer.SellerCity == "" {
+				missingFields = append(missingFields, domain.FieldCity)
+			}
+			if offer.SellerCity == "تهران" && offer.SellerArea == "" {
+				missingFields = append(missingFields, domain.FieldTehranArea)
+			}
+
+			// Initialize conversation if missing fields exist
+			if len(missingFields) > 0 && p.convManager != nil && msg.SenderID != 0 {
+				_, err := p.convManager.InitConversation(ctx, offer, missingFields)
+				if err != nil {
+					slog.Warn("failed to initialize conversation for offer", "offer_id", offer.ID, "error", err)
+				}
+			}
+		}
+
+		// 6. Recalculate price statistics for product if matched
+		if productID != nil && p.analyticsEngine != nil {
+			go func(pID uuid.UUID) {
+				calcCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+				defer cancel()
+				_, _ = p.analyticsEngine.CalculateProductStatistics(calcCtx, pID)
+			}(*productID)
+		}
 	}
 
 	return nil

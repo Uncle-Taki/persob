@@ -41,6 +41,12 @@ func (r *MessagesRepo) UpsertMessage(ctx context.Context, msg *domain.TelegramMe
 
 	update := bson.M{
 		"$setOnInsert": bson.M{
+			"source_id":           msg.SourceID,
+			"telegram_peer_id":    msg.TelegramPeerID,
+			"topic_id":            msg.TopicID,
+			"linked_post_id":      msg.LinkedPostID,
+			"source_type":         msg.SourceType,
+			"sender_type":         msg.SenderType,
 			"message_text":        msg.MessageText, // Preserve original text intact
 			"received_at":         msg.ReceivedAt,
 			"message_date":        msg.MessageDate,

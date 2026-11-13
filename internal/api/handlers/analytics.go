@@ -103,3 +103,55 @@ func (h *AnalyticsHandler) OfferAnalytics(w http.ResponseWriter, r *http.Request
 		"analyzed_at": time.Now().UTC(),
 	})
 }
+
+func (h *AnalyticsHandler) CompareCondition(w http.ResponseWriter, r *http.Request) {
+	var pID *uuid.UUID
+	if pIDStr := r.URL.Query().Get("product_id"); pIDStr != "" {
+		if id, err := uuid.Parse(pIDStr); err == nil {
+			pID = &id
+		}
+	}
+
+	comparisons, err := h.analyticsRepo.GetConditionComparison(r.Context(), pID)
+	if err != nil {
+		httputil.RespondError(w, http.StatusInternalServerError, "Failed to get condition comparison: "+err.Error())
+		return
+	}
+
+	httputil.RespondJSON(w, http.StatusOK, map[string]any{
+		"product_id":  pID,
+		"comparisons": comparisons,
+	})
+}
+
+func (h *AnalyticsHandler) CompareCity(w http.ResponseWriter, r *http.Request) {
+	var pID *uuid.UUID
+	if pIDStr := r.URL.Query().Get("product_id"); pIDStr != "" {
+		if id, err := uuid.Parse(pIDStr); err == nil {
+			pID = &id
+		}
+	}
+
+	comparisons, err := h.analyticsRepo.GetCityComparison(r.Context(), pID)
+	if err != nil {
+		httputil.RespondError(w, http.StatusInternalServerError, "Failed to get city comparison: "+err.Error())
+		return
+	}
+
+	httputil.RespondJSON(w, http.StatusOK, map[string]any{
+		"product_id":  pID,
+		"comparisons": comparisons,
+	})
+}
+
+func (h *AnalyticsHandler) CompareBrand(w http.ResponseWriter, r *http.Request) {
+	comparisons, err := h.analyticsRepo.GetBrandComparison(r.Context())
+	if err != nil {
+		httputil.RespondError(w, http.StatusInternalServerError, "Failed to get brand comparison: "+err.Error())
+		return
+	}
+
+	httputil.RespondJSON(w, http.StatusOK, map[string]any{
+		"comparisons": comparisons,
+	})
+}

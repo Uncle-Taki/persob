@@ -70,3 +70,16 @@ type PriceObservation struct {
 	ObservedAt    time.Time `json:"observed_at"`
 	CreatedAt     time.Time `json:"created_at"`
 }
+
+type OfferMatchResult struct {
+	ID                  uuid.UUID              `json:"id"`
+	OfferID             uuid.UUID              `json:"offer_id"`
+	InterestID          *uuid.UUID             `json:"interest_id,omitempty"`
+	UserID              uuid.UUID              `json:"user_id"`
+	ProductID           uuid.UUID              `json:"product_id"`
+	MatchScore          float64                `json:"match_score"`
+	MatchExplanation    string                 `json:"match_explanation,omitempty"`
+	MatchedAttributes   map[string]interface{} `json:"matched_attributes"`
+	UnmatchedAttributes map[string]interface{} `json:"unmatched_attributes"`
+	CreatedAt           time.Time              `json:"created_at"`
+}

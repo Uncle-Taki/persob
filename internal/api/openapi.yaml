@@ -348,3 +348,227 @@ paths:
       responses:
         '200':
           description: Top deals and offers overview
+
+  /api/v1/sources/resolve:
+    post:
+      summary: Resolve and detect Telegram entity type and capabilities
+      operationId: resolveSource
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResolveSourceRequest'
+      responses:
+        '200':
+          description: Resolved Telegram source metadata
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResolveSourceResponse'
+
+  /api/v1/sources:
+    get:
+      summary: List configured Telegram sources
+      operationId: listTelegramSources
+      responses:
+        '200':
+          description: List of Telegram sources
+    post:
+      summary: Register and verify a Telegram source
+      operationId: createTelegramSource
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateTelegramSourceRequest'
+      responses:
+        '201':
+          description: Source registered successfully
+
+  /api/v1/sources/{id}:
+    get:
+      summary: Get Telegram source details
+      operationId: getTelegramSource
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Source details
+    delete:
+      summary: Delete a Telegram source
+      operationId: deleteTelegramSource
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Source deleted
+
+  /api/v1/sources/{id}/capabilities:
+    get:
+      summary: Get Telegram source capabilities
+      operationId: getSourceCapabilities
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Ingestion capabilities
+
+  /api/v1/sources/{id}/status:
+    put:
+      summary: Update source ingestion status
+      operationId: updateSourceStatus
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateTelegramSourceStatusRequest'
+      responses:
+        '200':
+          description: Status updated
+
+  /api/v1/matches:
+    get:
+      summary: List matched buying opportunities for the user
+      operationId: listMatches
+      responses:
+        '200':
+          description: List of matched seller offers with explanations
+
+  /api/v1/analytics/comparisons/condition:
+    get:
+      summary: Price comparison by condition
+      operationId: compareCondition
+      parameters:
+        - name: product_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Condition price comparison
+
+  /api/v1/analytics/comparisons/city:
+    get:
+      summary: Price comparison by seller city
+      operationId: compareCity
+      parameters:
+        - name: product_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: City price comparison
+
+  /api/v1/analytics/comparisons/brand:
+    get:
+      summary: Price comparison across marketplace brands
+      operationId: compareBrand
+      responses:
+        '200':
+          description: Brand price comparison
+
+components:
+  schemas:
+    ResolveSourceRequest:
+      type: object
+      required: [address]
+      properties:
+        address:
+          type: string
+        expected_type:
+          type: string
+          enum: [basic_group, supergroup, forum, broadcast_channel]
+    ResolveSourceResponse:
+      type: object
+      properties:
+        address:
+          type: string
+        peer_id:
+          type: integer
+          format: int64
+        username:
+          type: string
+        title:
+          type: string
+        detected_type:
+          type: string
+          enum: [basic_group, supergroup, forum, broadcast_channel]
+        access_type:
+          type: string
+          enum: [public, private]
+        expected_type:
+          type: string
+        type_mismatch:
+          type: bool
+        linked_discussion_peer_id:
+          type: integer
+          format: int64
+        capabilities:
+          $ref: '#/components/schemas/SourceCapabilities'
+        account_has_access:
+          type: boolean
+        can_ingest:
+          type: boolean
+    CreateTelegramSourceRequest:
+      type: object
+      required: [address]
+      properties:
+        address:
+          type: string
+        expected_type:
+          type: string
+        telegram_peer_id:
+          type: integer
+          format: int64
+        title:
+          type: string
+        source_type:
+          type: string
+    UpdateTelegramSourceStatusRequest:
+      type: object
+      required: [ingestion_status]
+      properties:
+        ingestion_status:
+          type: string
+          enum: [active, paused, error, unauthorized]
+        is_active:
+          type: boolean
+    SourceCapabilities:
+      type: object
+      properties:
+        can_read_history:
+          type: boolean
+        has_topics:
+          type: boolean
+        has_discussion:
+          type: boolean
+        sender_metadata_available:
+          type: boolean

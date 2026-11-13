@@ -72,6 +72,15 @@ func (db *DB) EnsureIndexes(ctx context.Context) error {
 		{
 			Keys: bson.D{{Key: "received_at", Value: -1}},
 		},
+		{
+			Keys: bson.D{{Key: "source_id", Value: 1}},
+		},
+		{
+			Keys: bson.D{{Key: "topic_id", Value: 1}},
+		},
+		{
+			Keys: bson.D{{Key: "linked_post_id", Value: 1}},
+		},
 	})
 	if err != nil {
 		return fmt.Errorf("create telegram_messages indexes: %w", err)
@@ -120,6 +129,34 @@ func (db *DB) EnsureIndexes(ctx context.Context) error {
 	})
 	if err != nil {
 		return fmt.Errorf("create processing_jobs indexes: %w", err)
+	}
+
+	// llm_extractions indexes
+	llmColl := db.Database.Collection("llm_extractions")
+	_, err = llmColl.Indexes().CreateMany(ctx, []mongo.IndexModel{
+		{
+			Keys: bson.D{{Key: "message_id", Value: 1}},
+		},
+		{
+			Keys: bson.D{{Key: "created_at", Value: -1}},
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("create llm_extractions indexes: %w", err)
+	}
+
+	// conversation_events indexes
+	eventsColl := db.Database.Collection("conversation_events")
+	_, err = eventsColl.Indexes().CreateMany(ctx, []mongo.IndexModel{
+		{
+			Keys: bson.D{{Key: "conversation_id", Value: 1}},
+		},
+		{
+			Keys: bson.D{{Key: "timestamp", Value: -1}},
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("create conversation_events indexes: %w", err)
 	}
 
 	return nil

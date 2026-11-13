@@ -31,6 +31,9 @@
         <a href="#interests" class="nav-item" onclick="switchTab('interests')">
           <span class="icon">⭐</span> لیست علاقه‌مندی‌ها
         </a>
+        <a href="#matches" class="nav-item" onclick="switchTab('matches')">
+          <span class="icon">🎯</span> فرصت‌های خرید منطبق
+        </a>
         <a href="#watch-sources" class="nav-item" onclick="switchTab('watch-sources')">
           <span class="icon">📡</span> منابع تحت پایش (تلگرام)
         </a>
@@ -137,6 +140,34 @@
               </div>
             </div>
           </div>
+
+          <!-- Price Comparisons Section -->
+          <div class="card" style="margin-top: 1.5rem;">
+            <div class="card-header">
+              <h3>مقایسه هوشمند قیمت‌ها در بازار (تحلیل شرطی، جغرافیایی و برند)</h3>
+              <div class="filter-controls">
+                <button class="btn btn-sm btn-outline active" onclick="loadComparison('condition')">بر اساس وضعیت کالا</button>
+                <button class="btn btn-sm btn-outline" onclick="loadComparison('city')">بر اساس شهر فروشنده</button>
+                <button class="btn btn-sm btn-outline" onclick="loadComparison('brand')">بر اساس برند</button>
+              </div>
+            </div>
+            <div class="card-body table-responsive">
+              <table class="data-table">
+                <thead>
+                  <tr id="comparison-thead">
+                    <th>عنوان</th>
+                    <th>میانگین قیمت</th>
+                    <th>حداقل قیمت</th>
+                    <th>حداکثر قیمت</th>
+                    <th>تعداد آگهی</th>
+                  </tr>
+                </thead>
+                <tbody id="comparison-tbody">
+                  <!-- Populated via API -->
+                </tbody>
+              </table>
+            </div>
+          </div>
         </section>
 
         <!-- Tab 2: Offers -->
@@ -188,12 +219,70 @@
           </div>
         </section>
 
-        <!-- Tab 4: Watch Sources -->
-        <section id="tab-watch-sources" class="tab-pane">
+        <!-- Tab: Matches -->
+        <section id="tab-matches" class="tab-pane">
           <div class="card">
             <div class="card-header">
-              <h3>کانال‌ها و گروه‌های تحت پایش تلگرام</h3>
-              <button class="btn btn-primary" onclick="showAddSourceModal()">+ افزودن کانال یا گروه</button>
+              <h3>فرصت‌های خرید منطبق با لیست علاقه‌مندی‌ها (Match Results)</h3>
+            </div>
+            <div class="card-body table-responsive">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>کالای درخواستی</th>
+                    <th>امتیاز تطابق</th>
+                    <th>علت انطباق و شواهد</th>
+                    <th>ویژگی‌های همخوان</th>
+                    <th>زمان کشف</th>
+                  </tr>
+                </thead>
+                <tbody id="matches-table-body">
+                  <!-- Populated via API -->
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <!-- Tab 4: Watch Sources -->
+        <section id="tab-watch-sources" class="tab-pane">
+          <!-- Source Resolver Card -->
+          <div class="card" style="margin-bottom: 1.5rem;">
+            <div class="card-header">
+              <h3>🔍 شناسایی و اعتبارسنجی هوشمند منبع تلگرام (Source Resolver)</h3>
+            </div>
+            <div class="card-body">
+              <div style="display: flex; gap: 1rem; align-items: flex-end; flex-wrap: wrap;">
+                <div style="flex: 2; min-width: 250px;">
+                  <label style="display: block; margin-bottom: 0.5rem; font-size: 0.85rem; color: #64748b;">آدرس، لینک یا نام‌کاربری تلگرام:</label>
+                  <input type="text" id="resolver-input-address" placeholder="مثال: @iran_tech_bazaar یا t.me/+hash..." style="width: 100%; padding: 0.6rem 0.8rem; border: 1px solid #cbd5e1; border-radius: 6px; font-family: inherit;">
+                </div>
+                <div style="flex: 1; min-width: 180px;">
+                  <label style="display: block; margin-bottom: 0.5rem; font-size: 0.85rem; color: #64748b;">نوع مورد انتظار (اختیاری):</label>
+                  <select id="resolver-expected-type" style="width: 100%; padding: 0.6rem 0.8rem; border: 1px solid #cbd5e1; border-radius: 6px; font-family: inherit;">
+                    <option value="">نامشخص (کشف خودکار)</option>
+                    <option value="broadcast_channel">کانال تلگرام (Broadcast)</option>
+                    <option value="supergroup">سوپرگروه (Supergroup)</option>
+                    <option value="forum">انجمن تاپیک‌دار (Forum)</option>
+                    <option value="basic_group">گروه معمولی (Basic Group)</option>
+                  </select>
+                </div>
+                <div>
+                  <button class="btn btn-primary" onclick="resolveSource()">بررسی و کشف قابلیت‌ها</button>
+                </div>
+              </div>
+
+              <!-- Resolver Output Box -->
+              <div id="resolver-result-box" style="display: none; margin-top: 1.25rem; padding: 1rem; background: #f8fafc; border-radius: 8px; border: 1px solid #e2e8f0;">
+                <!-- Populated via JS -->
+              </div>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-header">
+              <h3>کانال‌ها و گروه‌های ثبت‌شده تحت پایش</h3>
+              <button class="btn btn-primary" onclick="showAddSourceModal()">+ افزودن دستی</button>
             </div>
             <div class="card-body table-responsive">
               <table class="data-table">
@@ -203,6 +292,7 @@
                     <th>شناسه چت تلگرام</th>
                     <th>نام کاربری</th>
                     <th>نوع منبع</th>
+                    <th>قابلیت‌ها</th>
                     <th>وضعیت پایش</th>
                     <th>عملیات</th>
                   </tr>
@@ -258,6 +348,7 @@
         'dashboard': 'داشبورد خلاصه بازار',
         'offers': 'آگهی‌ها و پیشنهادها',
         'interests': 'لیست علاقه‌مندی‌ها',
+        'matches': 'فرصت‌های خرید منطبق',
         'watch-sources': 'منابع تحت پایش تلگرام',
         'conversations': 'مکالمات و تعاملات'
       };
@@ -266,6 +357,7 @@
       if (tabId === 'dashboard') loadDashboard();
       if (tabId === 'offers') loadOffers();
       if (tabId === 'interests') loadInterests();
+      if (tabId === 'matches') loadMatches();
       if (tabId === 'watch-sources') loadWatchSources();
       if (tabId === 'conversations') loadConversations();
     }
@@ -283,6 +375,7 @@
         }
         loadProductAnalytics();
         loadTopDeals();
+        loadComparison('condition');
       } catch (err) {
         console.error('Error loading dashboard:', err);
       }
@@ -399,27 +492,182 @@
       }
     }
 
+    async function loadComparison(type) {
+      try {
+        const res = await fetch(`${API_BASE}/api/v1/analytics/comparisons/${type}`);
+        if (res.ok) {
+          const json = await res.json();
+          const list = json.data.comparisons || [];
+          const tbody = document.getElementById('comparison-tbody');
+          if (list.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="5" class="text-center">داده‌ای برای مقایسه موجود نیست.</td></tr>';
+            return;
+          }
+          tbody.innerHTML = list.map(item => `
+            <tr>
+              <td><strong>${item.condition || item.city || item.brand || '-'}</strong></td>
+              <td><strong class="text-primary">${formatToman(item.avg_price)}</strong></td>
+              <td><span class="text-success">${formatToman(item.min_price)}</span></td>
+              <td><span class="text-danger">${formatToman(item.max_price)}</span></td>
+              <td><span class="badge badge-info">${item.count} عدد</span></td>
+            </tr>
+          `).join('');
+        }
+      } catch (err) {
+        console.error('Error loading comparison:', err);
+      }
+    }
+
+    async function loadMatches() {
+      try {
+        const res = await fetch(`${API_BASE}/api/v1/matches`);
+        if (res.ok) {
+          const json = await res.json();
+          const list = json.data || [];
+          const tbody = document.getElementById('matches-table-body');
+          if (list.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="5" class="text-center">هنوز فرصت خریدی منطبق با لیست علاقه‌مندی‌ها کشف نشده است.</td></tr>';
+            return;
+          }
+          tbody.innerHTML = list.map(m => `
+            <tr>
+              <td><code>${m.product_id ? m.product_id.substring(0, 8) + '...' : '-'}</code></td>
+              <td><span class="score-pill">${m.match_score} / ۱۰۰</span></td>
+              <td>${m.match_explanation || 'انطباق مدل و مشخصات'}</td>
+              <td><code>${JSON.stringify(m.matched_attributes || {})}</code></td>
+              <td>${new Date(m.created_at).toLocaleTimeString('fa-IR')}</td>
+            </tr>
+          `).join('');
+        }
+      } catch (err) {
+        console.error('Error loading matches:', err);
+      }
+    }
+
+    async function resolveSource() {
+      const address = document.getElementById('resolver-input-address').value.trim();
+      const expectedType = document.getElementById('resolver-expected-type').value;
+      if (!address) {
+        alert('لطفاً آدرس یا نام‌کاربری منبع تلگرام را وارد کنید.');
+        return;
+      }
+
+      const resBox = document.getElementById('resolver-result-box');
+      resBox.style.display = 'block';
+      resBox.innerHTML = '<p class="text-muted">در حال بررسی و تحلیل متادیتای تلگرام...</p>';
+
+      try {
+        const res = await fetch(`${API_BASE}/api/v1/sources/resolve`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ address, expected_type: expectedType || undefined })
+        });
+        const json = await res.json();
+        if (!res.ok || !json.success) {
+          resBox.innerHTML = `<p class="text-danger">خطا در شناسایی: ${json.error || 'منبع یافت نشد'}</p>`;
+          return;
+        }
+
+        const d = json.data;
+        window.lastResolvedSource = d;
+
+        const typeLabels = {
+          'broadcast_channel': 'کانال تلگرام (Broadcast)',
+          'supergroup': 'سوپرگروه (Supergroup)',
+          'forum': 'انجمن تاپیک‌دار (Forum)',
+          'basic_group': 'گروه معمولی (Basic Group)'
+        };
+
+        resBox.innerHTML = `
+          <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 1rem;">
+            <div>
+              <h4 style="margin: 0 0 0.5rem 0; color: #1e293b;">${d.title || d.address}</h4>
+              <div style="font-size: 0.85rem; color: #64748b; margin-bottom: 0.5rem;">
+                شناسه پیر: <code>${d.peer_id}</code> | نام کاربری: <code>@${d.username || '-'}</code> | دسترسی: <strong>${d.access_type === 'public' ? 'عمومی' : 'خصوصی'}</strong>
+              </div>
+              <div style="display: flex; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 0.5rem;">
+                <span class="badge badge-info">نوع شناسایی‌شده: ${typeLabels[d.detected_type] || d.detected_type}</span>
+                ${d.type_mismatch ? '<span class="badge badge-danger">عدم تطابق با نوع مورد انتظار!</span>' : ''}
+                ${d.capabilities.has_topics ? '<span class="badge badge-success">پشتیبانی از تاپیک‌ها (Forum)</span>' : ''}
+                ${d.capabilities.has_discussion ? '<span class="badge badge-success">دارای گفتگوی متصل</span>' : ''}
+                ${d.capabilities.sender_metadata_available ? '<span class="badge badge-info">متادیتای فروشنده در دسترس</span>' : '<span class="badge badge-warning">فاقد متادیتای فرستنده شخصی (کانال)</span>'}
+              </div>
+            </div>
+            <div>
+              <button class="btn btn-primary" onclick="addResolvedSource()">+ ثبت قطعی در منابع تحت پایش</button>
+            </div>
+          </div>
+        `;
+      } catch (err) {
+        resBox.innerHTML = `<p class="text-danger">خطا در ارتباط با سرور: ${err.message}</p>`;
+      }
+    }
+
+    async function addResolvedSource() {
+      if (!window.lastResolvedSource) return;
+      const s = window.lastResolvedSource;
+      try {
+        const res = await fetch(`${API_BASE}/api/v1/sources`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            address: s.address,
+            telegram_peer_id: s.peer_id,
+            telegram_access_hash: s.access_hash,
+            username: s.username,
+            title: s.title,
+            source_type: s.detected_type,
+            access_type: s.access_type,
+            linked_discussion_peer_id: s.linked_discussion_peer_id,
+            capabilities: s.capabilities
+          })
+        });
+        if (res.ok) {
+          alert('منبع با موفقیت در لیست منابع تحت پایش ثبت شد.');
+          document.getElementById('resolver-result-box').style.display = 'none';
+          document.getElementById('resolver-input-address').value = '';
+          loadWatchSources();
+        } else {
+          const err = await res.json();
+          alert('خطا در ثبت منبع: ' + (err.error || 'خطای نامشخص'));
+        }
+      } catch (err) {
+        alert('خطای ارتباط با سرور: ' + err.message);
+      }
+    }
+
     async function loadWatchSources() {
       try {
-        const res = await fetch(`${API_BASE}/api/v1/watch-sources`);
+        let res = await fetch(`${API_BASE}/api/v1/sources`);
+        if (!res.ok) {
+          res = await fetch(`${API_BASE}/api/v1/watch-sources`);
+        }
         if (res.ok) {
           const json = await res.json();
           const list = json.data || [];
           const tbody = document.getElementById('sources-table-body');
           if (list.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="6" class="text-center">منبعی ثبت نشده است.</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="7" class="text-center">منبعی ثبت نشده است.</td></tr>';
             return;
           }
-          tbody.innerHTML = list.map(s => `
-            <tr>
-              <td><strong>${s.title}</strong></td>
-              <td><code>${s.telegram_chat_id}</code></td>
-              <td>@${s.username || '-'}</td>
-              <td>${s.source_type}</td>
-              <td><span class="badge badge-success">${s.monitoring_status}</span></td>
-              <td><button class="btn btn-sm btn-danger" onclick="deleteWatchSource('${s.id}')">حذف</button></td>
-            </tr>
-          `).join('');
+          tbody.innerHTML = list.map(s => {
+            const caps = s.capabilities || {};
+            const capsBadges = [];
+            if (caps.has_topics) capsBadges.push('تاپیک');
+            if (caps.has_discussion) capsBadges.push('کامنت');
+            if (caps.can_read_history) capsBadges.push('تاریخچه');
+            return `
+              <tr>
+                <td><strong>${s.title}</strong></td>
+                <td><code>${s.telegram_peer_id || s.telegram_chat_id}</code></td>
+                <td>@${s.username || '-'}</td>
+                <td><span class="badge badge-info">${s.source_type}</span></td>
+                <td><small>${capsBadges.join(' | ') || '-'}</small></td>
+                <td><span class="badge badge-success">${s.ingestion_status || s.monitoring_status || 'active'}</span></td>
+                <td><button class="btn btn-sm btn-danger" onclick="deleteWatchSource('${s.id}')">حذف</button></td>
+              </tr>
+            `;
+          }).join('');
         }
       } catch (err) {
         console.error(err);

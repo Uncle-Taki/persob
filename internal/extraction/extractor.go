@@ -77,13 +77,74 @@ func (e *Extractor) ExtractFromMessage(msg *domain.TelegramMessage) *domain.Extr
 
 	// Extract product info if classified as seller
 	if clsRes.Classification == domain.ClassificationSeller || clsRes.Classification == domain.ClassificationUncertain {
-		product := e.extractProductDetails(norm, text)
-		if product != nil {
-			extracted.ExtractedProducts = append(extracted.ExtractedProducts, *product)
-		}
+		products := e.ExtractProducts(norm, text)
+		extracted.ExtractedProducts = products
 	}
 
 	return extracted
+}
+
+// ExtractProducts extracts all product items found in a message text (multi-product support)
+func (e *Extractor) ExtractProducts(normText, originalText string) []domain.ExtractedProduct {
+	var products []domain.ExtractedProduct
+	seenModels := make(map[string]bool)
+
+	// 1. Try line-by-line / bullet extraction
+	lines := strings.Split(originalText, "\n")
+	if len(lines) > 1 {
+		for _, line := range lines {
+			trimmed := strings.TrimSpace(line)
+			if trimmed == "" {
+				continue
+			}
+			normLine := nlp.Normalize(trimmed)
+			prod := e.extractProductDetails(normLine, trimmed)
+			if prod != nil {
+				key := prod.Name + "_" + prod.Variant
+				if !seenModels[key] {
+					seenModels[key] = true
+					products = append(products, *prod)
+				}
+			}
+		}
+	}
+
+	// 2. If multi-line found products, return them
+	if len(products) > 0 {
+		return products
+	}
+
+	// 3. Try splitting single line by conjunctions " و " or " / " or " - "
+	segments := regexp.MustCompile(`(?:\s+و\s+|\s*[/|;]\s*)`).Split(originalText, -1)
+	if len(segments) > 1 {
+		for _, seg := range segments {
+			trimmed := strings.TrimSpace(seg)
+			if len(trimmed) < 4 {
+				continue
+			}
+			normSeg := nlp.Normalize(trimmed)
+			prod := e.extractProductDetails(normSeg, trimmed)
+			if prod != nil {
+				key := prod.Name + "_" + prod.Variant
+				if !seenModels[key] {
+					seenModels[key] = true
+					products = append(products, *prod)
+				}
+			}
+		}
+	}
+
+	if len(products) > 0 {
+		return products
+	}
+
+	// 4. Fallback to full-text extraction
+	prod := e.extractProductDetails(normText, originalText)
+	if prod != nil {
+		products = append(products, *prod)
+	}
+
+	return products
 }
 
 func (e *Extractor) extractLocation(normText string) *domain.ExtractedLocation {

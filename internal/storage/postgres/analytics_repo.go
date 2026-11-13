@@ -107,3 +107,90 @@ func (r *AnalyticsRepo) GetDashboardSummary(ctx context.Context) (*domain.Dashbo
 
 	return &summary, nil
 }
+
+func (r *AnalyticsRepo) GetConditionComparison(ctx context.Context, productID *uuid.UUID) ([]domain.ConditionComparison, error) {
+	query := `
+		SELECT condition, 
+		       ROUND(AVG(price_amount))::bigint AS avg_price,
+		       MIN(price_amount) AS min_price,
+		       MAX(price_amount) AS max_price,
+		       COUNT(*)::int AS count
+		FROM offers
+		WHERE listing_status = 'active' AND price_amount IS NOT NULL AND ($1::uuid IS NULL OR product_id = $1)
+		GROUP BY condition
+		ORDER BY avg_price ASC
+	`
+	rows, err := r.db.Pool.Query(ctx, query, productID)
+	if err != nil {
+		return nil, fmt.Errorf("query condition comparison: %w", err)
+	}
+	defer rows.Close()
+
+	var comparisons []domain.ConditionComparison
+	for rows.Next() {
+		var c domain.ConditionComparison
+		if err := rows.Scan(&c.Condition, &c.AvgPrice, &c.MinPrice, &c.MaxPrice, &c.Count); err != nil {
+			return nil, fmt.Errorf("scan condition comparison: %w", err)
+		}
+		comparisons = append(comparisons, c)
+	}
+	return comparisons, nil
+}
+
+func (r *AnalyticsRepo) GetCityComparison(ctx context.Context, productID *uuid.UUID) ([]domain.CityComparison, error) {
+	query := `
+		SELECT COALESCE(NULLIF(seller_city, ''), 'نامشخص') AS city,
+		       ROUND(AVG(price_amount))::bigint AS avg_price,
+		       MIN(price_amount) AS min_price,
+		       MAX(price_amount) AS max_price,
+		       COUNT(*)::int AS count
+		FROM offers
+		WHERE listing_status = 'active' AND price_amount IS NOT NULL AND ($1::uuid IS NULL OR product_id = $1)
+		GROUP BY COALESCE(NULLIF(seller_city, ''), 'نامشخص')
+		ORDER BY count DESC, avg_price ASC
+	`
+	rows, err := r.db.Pool.Query(ctx, query, productID)
+	if err != nil {
+		return nil, fmt.Errorf("query city comparison: %w", err)
+	}
+	defer rows.Close()
+
+	var comparisons []domain.CityComparison
+	for rows.Next() {
+		var c domain.CityComparison
+		if err := rows.Scan(&c.City, &c.AvgPrice, &c.MinPrice, &c.MaxPrice, &c.Count); err != nil {
+			return nil, fmt.Errorf("scan city comparison: %w", err)
+		}
+		comparisons = append(comparisons, c)
+	}
+	return comparisons, nil
+}
+
+func (r *AnalyticsRepo) GetBrandComparison(ctx context.Context) ([]domain.BrandComparison, error) {
+	query := `
+		SELECT COALESCE(NULLIF(brand, ''), 'نامشخص') AS brand,
+		       ROUND(AVG(price_amount))::bigint AS avg_price,
+		       MIN(price_amount) AS min_price,
+		       MAX(price_amount) AS max_price,
+		       COUNT(*)::int AS count
+		FROM offers
+		WHERE listing_status = 'active' AND price_amount IS NOT NULL
+		GROUP BY COALESCE(NULLIF(brand, ''), 'نامشخص')
+		ORDER BY count DESC, avg_price ASC
+	`
+	rows, err := r.db.Pool.Query(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("query brand comparison: %w", err)
+	}
+	defer rows.Close()
+
+	var comparisons []domain.BrandComparison
+	for rows.Next() {
+		var c domain.BrandComparison
+		if err := rows.Scan(&c.Brand, &c.AvgPrice, &c.MinPrice, &c.MaxPrice, &c.Count); err != nil {
+			return nil, fmt.Errorf("scan brand comparison: %w", err)
+		}
+		comparisons = append(comparisons, c)
+	}
+	return comparisons, nil
+}

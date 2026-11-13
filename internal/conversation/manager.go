@@ -28,6 +28,7 @@ type Manager struct {
 	pgConvRepo     *postgres.ConversationRepo
 	mongoConvRepo  *mongodb.ConversationRepo
 	auditRepo      *postgres.AuditRepo
+	sellerRepo     *postgres.SellerProfileRepo
 	telegramClient telegram.TelegramClient
 	llmProvider    llm.Provider
 }
@@ -50,6 +51,10 @@ func NewManager(
 	}
 }
 
+func (m *Manager) SetSellerRepo(sellerRepo *postgres.SellerProfileRepo) {
+	m.sellerRepo = sellerRepo
+}
+
 // InitConversation creates a conversation for an offer with missing fields
 func (m *Manager) InitConversation(
 	ctx context.Context,
@@ -58,6 +63,20 @@ func (m *Manager) InitConversation(
 ) (*domain.Conversation, error) {
 	if len(missingFields) == 0 {
 		return nil, nil // Nothing to ask
+	}
+
+	// Respect seller opt-out and cooldown
+	if m.sellerRepo != nil {
+		if prof, err := m.sellerRepo.GetByID(ctx, offer.SellerID); err == nil && prof != nil {
+			if prof.OptedOut {
+				slog.Info("seller has opted out, skipping conversation", "seller_id", offer.SellerID)
+				return nil, nil
+			}
+			if prof.CooldownUntil != nil && prof.CooldownUntil.After(time.Now()) {
+				slog.Info("seller is in cooldown, skipping conversation", "seller_id", offer.SellerID)
+				return nil, nil
+			}
+		}
 	}
 
 	initialState := domain.ConvStateAwaitingApproval
@@ -181,6 +200,9 @@ func (m *Manager) HandleIncomingSellerMessage(ctx context.Context, convID uuid.U
 	// 2. Check for Opt-Out / Refusal
 	if optOutRegex.MatchString(norm) {
 		_ = m.pgConvRepo.UpdateState(ctx, convID, domain.ConvStateOptedOut, "Seller opted out")
+		if m.sellerRepo != nil {
+			_ = m.sellerRepo.SetOptOut(ctx, conv.SellerID, true)
+		}
 		reply := "درخواست شما ثبت شد. دیگر پیامی از طرف پرسو برای شما ارسال نخواهد شد. با احترام."
 		m.sendAssistantMessage(ctx, conv, reply)
 		return reply, nil
