@@ -22,7 +22,7 @@ func NewMessagesRepo(db *DB) *MessagesRepo {
 	}
 }
 
-// UpsertMessage inserts a new raw Telegram message or updates it on edit without overwriting original message text
+// UpsertMessage keeps both first-seen and current text, with a stable peer/message identity.
 func (r *MessagesRepo) UpsertMessage(ctx context.Context, msg *domain.TelegramMessage) error {
 	if msg.ReceivedAt.IsZero() {
 		msg.ReceivedAt = time.Now()
@@ -39,38 +39,33 @@ func (r *MessagesRepo) UpsertMessage(ctx context.Context, msg *domain.TelegramMe
 		"telegram_message_id": msg.TelegramMessageID,
 	}
 
-	update := bson.M{
-		"$setOnInsert": bson.M{
-			"source_id":           msg.SourceID,
-			"telegram_peer_id":    msg.TelegramPeerID,
-			"topic_id":            msg.TopicID,
-			"linked_post_id":      msg.LinkedPostID,
-			"source_type":         msg.SourceType,
-			"sender_type":         msg.SenderType,
-			"message_text":        msg.MessageText, // Preserve original text intact
-			"received_at":         msg.ReceivedAt,
-			"message_date":        msg.MessageDate,
-			"chat_type":           msg.ChatType,
-			"chat_title":          msg.ChatTitle,
-			"chat_username":       msg.ChatUsername,
-			"sender_id":           msg.SenderID,
-			"sender_username":     msg.SenderUsername,
-			"sender_display_name": msg.SenderDisplayName,
-			"reply_to_message_id": msg.ReplyToMessageID,
-			"media_metadata":      msg.MediaMetadata,
-			"message_entities":    msg.MessageEntities,
-			"language":            msg.Language,
-		},
-		"$set": bson.M{
-			"normalized_text":    msg.NormalizedText,
-			"processing_status":  msg.ProcessingStatus,
-			"processing_version": msg.ProcessingVersion,
-		},
+	// Preserve first-seen text for old and new documents while making the current
+	// text readable by workers after an edit. Pipeline updates avoid a read/write race.
+	literal := func(v interface{}) bson.M { return bson.M{"$literal": v} }
+	insertValues := bson.M{
+		"source_id": msg.SourceID, "telegram_peer_id": msg.TelegramPeerID,
+		"received_at": msg.ReceivedAt, "message_date": msg.MessageDate,
+		"chat_type": msg.ChatType, "chat_title": msg.ChatTitle, "chat_username": msg.ChatUsername,
+		"sender_id": msg.SenderID, "sender_username": msg.SenderUsername,
+		"sender_display_name": msg.SenderDisplayName, "sender_type": msg.SenderType,
+		"language": msg.Language,
 	}
-
+	firstSeen := bson.M{}
+	for k, v := range insertValues {
+		firstSeen[k] = bson.M{"$ifNull": bson.A{"$" + k, literal(v)}}
+	}
+	firstSeen["original_message_text"] = bson.M{"$ifNull": bson.A{"$original_message_text", bson.M{"$ifNull": bson.A{"$message_text", literal(msg.MessageText)}}}}
+	current := bson.M{
+		"message_text": literal(msg.MessageText), "normalized_text": literal(msg.NormalizedText),
+		"processing_status": literal(msg.ProcessingStatus), "processing_version": literal(msg.ProcessingVersion),
+		"topic_id": literal(msg.TopicID), "linked_post_id": literal(msg.LinkedPostID),
+		"source_type": literal(msg.SourceType), "reply_to_message_id": literal(msg.ReplyToMessageID),
+		"media_metadata": literal(msg.MediaMetadata), "message_entities": literal(msg.MessageEntities),
+	}
 	if msg.EditedDate != nil {
-		update["$set"].(bson.M)["edited_date"] = msg.EditedDate
+		current["edited_date"] = literal(msg.EditedDate)
 	}
+	update := mongo.Pipeline{bson.D{{Key: "$set", Value: firstSeen}}, bson.D{{Key: "$set", Value: current}}}
 
 	opts := options.Update().SetUpsert(true)
 	_, err := r.coll.UpdateOne(ctx, filter, update, opts)

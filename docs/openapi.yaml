@@ -51,7 +51,7 @@ paths:
                   format: uuid
       responses:
         '201':
-          description: Interest created (Phase 1: buy_enabled=true, sell_enabled=false)
+          description: "Interest created (Phase 1: buy_enabled=true, sell_enabled=false)"
 
   /api/v1/interests/{id}:
     delete:
@@ -98,7 +98,7 @@ paths:
                   enum: [channel, group, supergroup]
       responses:
         '201':
-          description: Watch source added (Phase 1: buy_enabled=true, sell_enabled=false)
+          description: "Watch source added (Phase 1: buy_enabled=true, sell_enabled=false)"
 
   /api/v1/watch-sources/{id}:
     delete:
@@ -527,7 +527,7 @@ components:
         expected_type:
           type: string
         type_mismatch:
-          type: bool
+          type: boolean
         linked_discussion_peer_id:
           type: integer
           format: int64

@@ -1,6 +1,6 @@
 -- 001_initial_schema.sql: Initial PostgreSQL schema for Perso Marketplace Platform
 
-CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp" WITH SCHEMA public;
 
 -- Users
 CREATE TABLE IF NOT EXISTS users (

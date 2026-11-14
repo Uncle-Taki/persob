@@ -42,16 +42,24 @@ func CORSMiddleware(next http.Handler) http.Handler {
 	})
 }
 
-// UserAuthMockMiddleware extracts or defaults current authenticated user ID
+// AuthenticationMiddleware fails closed until a real identity provider is wired.
+// Demo access must be explicitly enabled by the development composition root.
+func AuthenticationMiddleware(allowDemo bool) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		if allowDemo {
+			return UserAuthMockMiddleware(next)
+		}
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			httputil.RespondError(w, http.StatusUnauthorized, "Authentication is not configured")
+		})
+	}
+}
+
+// UserAuthMockMiddleware provides only the fixed demo identity. Caller-supplied
+// X-User-ID is never an authenticated identity, even in local demo mode.
 func UserAuthMockMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Default to demo user if not passed in header
-		userIDStr := r.Header.Get("X-User-ID")
-		userID, err := uuid.Parse(userIDStr)
-		if err != nil {
-			// Demo buyer user
-			userID = uuid.MustParse("11111111-1111-1111-1111-111111111111")
-		}
+		userID := uuid.MustParse("11111111-1111-1111-1111-111111111111")
 
 		ctx := context.WithValue(r.Context(), httputil.UserContextKey, userID)
 		next.ServeHTTP(w, r.WithContext(ctx))

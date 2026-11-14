@@ -41,7 +41,7 @@ func (a *BasicGroupAdapter) AdaptMessage(ctx context.Context, e tg.Entities, msg
 		ChatType:          "group",
 		SourceType:        string(domain.TelegramSourceTypeBasicGroup),
 		SenderID:          senderID,
-		SenderType:        "user",
+		SenderType:        senderType(msg.FromID),
 		SenderUsername:    username,
 		SenderDisplayName: displayName,
 		MessageText:       msg.Message,
@@ -82,7 +82,7 @@ func (a *SupergroupAdapter) AdaptMessage(ctx context.Context, e tg.Entities, msg
 		ChatType:          "supergroup",
 		SourceType:        string(domain.TelegramSourceTypeSupergroup),
 		SenderID:          senderID,
-		SenderType:        "user",
+		SenderType:        senderType(msg.FromID),
 		SenderUsername:    username,
 		SenderDisplayName: displayName,
 		MessageText:       msg.Message,
@@ -141,7 +141,7 @@ func (a *ForumAdapter) AdaptMessage(ctx context.Context, e tg.Entities, msg *tg.
 		ChatType:          "forum",
 		SourceType:        string(domain.TelegramSourceTypeForum),
 		SenderID:          senderID,
-		SenderType:        "user",
+		SenderType:        senderType(msg.FromID),
 		SenderUsername:    username,
 		SenderDisplayName: displayName,
 		MessageText:       msg.Message,
@@ -232,7 +232,7 @@ func (a *LinkedDiscussionAdapter) AdaptMessage(ctx context.Context, e tg.Entitie
 		ChatType:          "supergroup",
 		SourceType:        "linked_discussion",
 		SenderID:          senderID,
-		SenderType:        "user",
+		SenderType:        senderType(msg.FromID),
 		SenderUsername:    username,
 		SenderDisplayName: displayName,
 		MessageText:       msg.Message,
@@ -264,15 +264,29 @@ func GetIngestionAdapter(sourceType domain.TelegramSourceType, isDiscussion bool
 }
 
 func extractSender(e tg.Entities, from tg.PeerClass) (int64, string, string) {
-	if from == nil {
+	user, ok := from.(*tg.PeerUser)
+	if !ok {
 		return 0, "", ""
 	}
-	id := extractPeerID(from)
+	id := user.UserID
 	if u, ok := e.Users[id]; ok {
 		name := strings.TrimSpace(u.FirstName + " " + u.LastName)
 		return id, u.Username, name
 	}
 	return id, "", ""
+}
+
+func senderType(from tg.PeerClass) string {
+	switch from.(type) {
+	case *tg.PeerUser:
+		return "user"
+	case *tg.PeerChannel:
+		return "channel"
+	case *tg.PeerChat:
+		return "group"
+	default:
+		return "unknown"
+	}
 }
 
 func extractMedia(media tg.MessageMediaClass) map[string]interface{} {

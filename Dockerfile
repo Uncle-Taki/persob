@@ -36,6 +36,9 @@ WORKDIR /app
 COPY --from=builder /app/bin/perso /app/perso
 COPY --from=builder /app/scripts/seed.sql /app/scripts/seed.sql
 
+# API and worker also construct the collector; use the owned runtime directory.
+ENV TELEGRAM_SESSION_DIR=/data/sessions
+
 USER perso:perso
 
 EXPOSE 8080

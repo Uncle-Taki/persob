@@ -41,7 +41,7 @@ func (c *Client) Close() error {
 
 // EnsureConsumerGroup ensures the consumer group exists on the stream
 func (c *Client) EnsureConsumerGroup(ctx context.Context, stream, group string) error {
-	err := c.Rdb.XGroupCreateMkStream(ctx, stream, group, "$").Err()
+	err := c.Rdb.XGroupCreateMkStream(ctx, stream, group, "0").Err()
 	if err != nil {
 		// Ignore if BUSYGROUP (group already exists)
 		if err.Error() == "BUSYGROUP Consumer Group name already exists" {

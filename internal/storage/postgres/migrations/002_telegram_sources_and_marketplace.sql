@@ -66,32 +66,10 @@ CREATE INDEX IF NOT EXISTS idx_offer_match_results_product ON offer_match_result
 
 -- Buy Offers View (Normalized active buying opportunities)
 CREATE OR REPLACE VIEW buy_offers AS
-SELECT 
+SELECT
     id, product_id, source_message_id, seller_id, brand, manufacturer, model,
     condition, quantity, price_amount, price_currency, price_raw, price_confidence,
     branded, expiration_date, seller_city, seller_area, seller_location_text,
     listing_status, extraction_confidence, created_at, updated_at
 FROM offers
 WHERE listing_status = 'active';
-
--- Seed initial telegram source matching existing watch source for demo buyer
-INSERT INTO telegram_sources (
-    id, owner_id, telegram_peer_id, title, username, source_type, access_type, 
-    expected_type, detected_type, linked_discussion_peer_id, capabilities, is_active, ingestion_status
-)
-VALUES (
-    '33333333-3333-3333-3333-333333333331',
-    '11111111-1111-1111-1111-111111111111',
-    -1001234567890,
-    'بازار موبایل و لپتاپ پایتخت',
-    'iran_tech_bazaar',
-    'broadcast_channel',
-    'public',
-    'broadcast_channel',
-    'broadcast_channel',
-    -1001234567899,
-    '{"can_read_history": true, "has_topics": false, "has_discussion": true, "sender_metadata_available": false}'::jsonb,
-    true,
-    'active'
-)
-ON CONFLICT (owner_id, telegram_peer_id) DO NOTHING;

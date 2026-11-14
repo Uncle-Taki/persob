@@ -335,6 +335,12 @@
   </div>
 
   <script>
+    // Dynamic values must be encoded for HTML, including attribute contexts.
+    function escapeHTML(value) {
+      return String(value ?? '').replace(/[&<>"']/g, c => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+      })[c]);
+    }
     const API_BASE = window.location.origin;
 
     function switchTab(tabId) {
@@ -412,12 +418,12 @@
           container.innerHTML = deals.slice(0, 4).map(d => `
             <div class="deal-item">
               <div>
-                <strong>${d.offer.model || d.offer.brand || 'کالا'}</strong>
-                <div class="subtext">${d.offer.seller_area || d.offer.seller_city || 'تهران'} | وضعیت: ${d.offer.condition}</div>
+                <strong>${escapeHTML(d.offer.model || d.offer.brand || 'کالا')}</strong>
+                <div class="subtext">${escapeHTML(d.offer.seller_area || d.offer.seller_city || 'تهران')} | وضعیت: ${escapeHTML(d.offer.condition)}</div>
               </div>
               <div class="deal-right">
                 <span class="price-tag">${formatToman(d.offer.price_amount)}</span>
-                <span class="score-badge">امتیاز: ${d.score_breakdown.final_score}</span>
+                <span class="score-badge">امتیاز: ${escapeHTML(d.score_breakdown.final_score)}</span>
               </div>
             </div>
           `).join('');
@@ -444,16 +450,16 @@
             const s = item.score_breakdown || {};
             return `
               <tr>
-                <td><strong>${o.brand || ''} ${o.model || ''}</strong></td>
-                <td><span class="badge badge-info">${o.condition}</span></td>
+                <td><strong>${escapeHTML(o.brand)} ${escapeHTML(o.model)}</strong></td>
+                <td><span class="badge badge-info">${escapeHTML(o.condition)}</span></td>
                 <td><strong class="text-success">${formatToman(o.price_amount)}</strong></td>
-                <td>${o.seller_area || o.seller_city || 'نامشخص'}</td>
+                <td>${escapeHTML(o.seller_area || o.seller_city || 'نامشخص')}</td>
                 <td>
-                  <span class="score-pill" title="${s.explanation || ''}">
-                    ${s.final_score ? s.final_score + ' / ۱۰۰' : '-'}
+                  <span class="score-pill" title="${escapeHTML(s.explanation)}">
+                    ${escapeHTML(s.final_score ? s.final_score + ' / ۱۰۰' : '-')}
                   </span>
                 </td>
-                <td><button class="btn btn-sm btn-outline" onclick="alert('${(s.explanation || '').replace(/'/g, "\\'")}')">مشاهده شفافیت</button></td>
+                <td><button class="btn btn-sm btn-outline" data-explanation="${escapeHTML(s.explanation)}" onclick="alert(this.dataset.explanation)">مشاهده شفافیت</button></td>
               </tr>
             `;
           }).join('');
@@ -477,11 +483,11 @@
           grid.innerHTML = list.map(i => `
             <div class="card interest-card">
               <div class="interest-header">
-                <h4>${i.product ? i.product.name : 'کالا'}</h4>
-                <button class="btn-del" onclick="deleteInterest('${i.id}')">✕</button>
+                <h4>${escapeHTML(i.product ? i.product.name : 'کالا')}</h4>
+                <button class="btn-del" data-id="${escapeHTML(i.id)}" onclick="deleteInterest(this.dataset.id)">✕</button>
               </div>
               <div class="interest-body">
-                <span>دسته‌بندی: ${i.product ? i.product.category : '-'}</span>
+                <span>دسته‌بندی: ${escapeHTML(i.product ? i.product.category : '-')}</span>
                 <span class="badge badge-success">جریان خرید: فعال</span>
               </div>
             </div>
@@ -505,11 +511,11 @@
           }
           tbody.innerHTML = list.map(item => `
             <tr>
-              <td><strong>${item.condition || item.city || item.brand || '-'}</strong></td>
+              <td><strong>${escapeHTML(item.condition || item.city || item.brand || '-')}</strong></td>
               <td><strong class="text-primary">${formatToman(item.avg_price)}</strong></td>
               <td><span class="text-success">${formatToman(item.min_price)}</span></td>
               <td><span class="text-danger">${formatToman(item.max_price)}</span></td>
-              <td><span class="badge badge-info">${item.count} عدد</span></td>
+              <td><span class="badge badge-info">${escapeHTML(item.count)} عدد</span></td>
             </tr>
           `).join('');
         }
@@ -531,10 +537,10 @@
           }
           tbody.innerHTML = list.map(m => `
             <tr>
-              <td><code>${m.product_id ? m.product_id.substring(0, 8) + '...' : '-'}</code></td>
-              <td><span class="score-pill">${m.match_score} / ۱۰۰</span></td>
-              <td>${m.match_explanation || 'انطباق مدل و مشخصات'}</td>
-              <td><code>${JSON.stringify(m.matched_attributes || {})}</code></td>
+              <td><code>${escapeHTML(m.product_id ? m.product_id.substring(0, 8) + '...' : '-')}</code></td>
+              <td><span class="score-pill">${escapeHTML(m.match_score)} / ۱۰۰</span></td>
+              <td>${escapeHTML(m.match_explanation || 'انطباق مدل و مشخصات')}</td>
+              <td><code>${escapeHTML(JSON.stringify(m.matched_attributes || {}))}</code></td>
               <td>${new Date(m.created_at).toLocaleTimeString('fa-IR')}</td>
             </tr>
           `).join('');
@@ -564,7 +570,7 @@
         });
         const json = await res.json();
         if (!res.ok || !json.success) {
-          resBox.innerHTML = `<p class="text-danger">خطا در شناسایی: ${json.error || 'منبع یافت نشد'}</p>`;
+          resBox.innerHTML = `<p class="text-danger">خطا در شناسایی: ${escapeHTML(json.error || 'منبع یافت نشد')}</p>`;
           return;
         }
 
@@ -581,12 +587,12 @@
         resBox.innerHTML = `
           <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 1rem;">
             <div>
-              <h4 style="margin: 0 0 0.5rem 0; color: #1e293b;">${d.title || d.address}</h4>
+              <h4 style="margin: 0 0 0.5rem 0; color: #1e293b;">${escapeHTML(d.title || d.address)}</h4>
               <div style="font-size: 0.85rem; color: #64748b; margin-bottom: 0.5rem;">
-                شناسه پیر: <code>${d.peer_id}</code> | نام کاربری: <code>@${d.username || '-'}</code> | دسترسی: <strong>${d.access_type === 'public' ? 'عمومی' : 'خصوصی'}</strong>
+                شناسه پیر: <code>${escapeHTML(d.peer_id)}</code> | نام کاربری: <code>@${escapeHTML(d.username || '-')}</code> | دسترسی: <strong>${d.access_type === 'public' ? 'عمومی' : 'خصوصی'}</strong>
               </div>
               <div style="display: flex; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 0.5rem;">
-                <span class="badge badge-info">نوع شناسایی‌شده: ${typeLabels[d.detected_type] || d.detected_type}</span>
+                <span class="badge badge-info">نوع شناسایی‌شده: ${escapeHTML(typeLabels[d.detected_type] || d.detected_type)}</span>
                 ${d.type_mismatch ? '<span class="badge badge-danger">عدم تطابق با نوع مورد انتظار!</span>' : ''}
                 ${d.capabilities.has_topics ? '<span class="badge badge-success">پشتیبانی از تاپیک‌ها (Forum)</span>' : ''}
                 ${d.capabilities.has_discussion ? '<span class="badge badge-success">دارای گفتگوی متصل</span>' : ''}
@@ -599,7 +605,7 @@
           </div>
         `;
       } catch (err) {
-        resBox.innerHTML = `<p class="text-danger">خطا در ارتباط با سرور: ${err.message}</p>`;
+        resBox.innerHTML = `<p class="text-danger">خطا در ارتباط با سرور: ${escapeHTML(err.message)}</p>`;
       }
     }
 
@@ -658,13 +664,13 @@
             if (caps.can_read_history) capsBadges.push('تاریخچه');
             return `
               <tr>
-                <td><strong>${s.title}</strong></td>
-                <td><code>${s.telegram_peer_id || s.telegram_chat_id}</code></td>
-                <td>@${s.username || '-'}</td>
-                <td><span class="badge badge-info">${s.source_type}</span></td>
+                <td><strong>${escapeHTML(s.title)}</strong></td>
+                <td><code>${escapeHTML(s.telegram_peer_id || s.telegram_chat_id)}</code></td>
+                <td>@${escapeHTML(s.username || '-')}</td>
+                <td><span class="badge badge-info">${escapeHTML(s.source_type)}</span></td>
                 <td><small>${capsBadges.join(' | ') || '-'}</small></td>
-                <td><span class="badge badge-success">${s.ingestion_status || s.monitoring_status || 'active'}</span></td>
-                <td><button class="btn btn-sm btn-danger" onclick="deleteWatchSource('${s.id}')">حذف</button></td>
+                <td><span class="badge badge-success">${escapeHTML(s.ingestion_status || s.monitoring_status || 'active')}</span></td>
+                <td><button class="btn btn-sm btn-danger" data-id="${escapeHTML(s.id)}" onclick="deleteWatchSource(this.dataset.id)">حذف</button></td>
               </tr>
             `;
           }).join('');
@@ -687,14 +693,14 @@
           }
           tbody.innerHTML = list.map(c => `
             <tr>
-              <td><code>${c.id.substring(0, 8)}...</code></td>
-              <td>فروشنده: ${c.seller_id}</td>
-              <td>${(c.missing_fields || []).join('، ')}</td>
-              <td><span class="badge badge-warning">${c.state}</span></td>
-              <td>${c.questions_asked_count} از ${c.max_questions}</td>
+              <td><code>${escapeHTML(c.id.substring(0, 8))}...</code></td>
+              <td>فروشنده: ${escapeHTML(c.seller_id)}</td>
+              <td>${escapeHTML((c.missing_fields || []).join('، '))}</td>
+              <td><span class="badge badge-warning">${escapeHTML(c.state)}</span></td>
+              <td>${escapeHTML(c.questions_asked_count)} از ${escapeHTML(c.max_questions)}</td>
               <td>
-                ${c.state === 'AWAITING_APPROVAL' ? `<button class="btn btn-sm btn-primary" onclick="approveConv('${c.id}')">تأیید ارسال</button>` : ''}
-                ${c.state === 'ACTIVE' ? `<button class="btn btn-sm btn-outline" onclick="pauseConv('${c.id}')">توقف</button>` : ''}
+                ${c.state === 'AWAITING_APPROVAL' ? `<button class="btn btn-sm btn-primary" data-id="${escapeHTML(c.id)}" onclick="approveConv(this.dataset.id)">تأیید ارسال</button>` : ''}
+                ${c.state === 'ACTIVE' ? `<button class="btn btn-sm btn-outline" data-id="${escapeHTML(c.id)}" onclick="pauseConv(this.dataset.id)">توقف</button>` : ''}
               </td>
             </tr>
           `).join('');

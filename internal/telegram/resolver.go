@@ -2,6 +2,7 @@ package telegram
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -10,6 +11,8 @@ import (
 	"github.com/gotd/td/tg"
 	"github.com/perso/perso-mind/internal/domain"
 )
+
+var ErrResolverUnavailable = errors.New("Telegram resolver has no connected client")
 
 type AddressType string
 
@@ -81,9 +84,12 @@ func (r *Resolver) NormalizeAddress(input string) (string, AddressType) {
 
 // ResolveSource resolves a Telegram entity and determines its source type, access, and capabilities
 func (r *Resolver) ResolveSource(ctx context.Context, rawAddress string, expectedType domain.TelegramSourceType) (*domain.ResolveSourceResponse, error) {
+	if r == nil || (!r.isMock && r.client == nil) {
+		return nil, ErrResolverUnavailable
+	}
 	normAddr, addrType := r.NormalizeAddress(rawAddress)
 
-	if r.isMock || r.client == nil {
+	if r.isMock {
 		return r.resolveMockSource(rawAddress, normAddr, addrType, expectedType)
 	}
 
@@ -103,14 +109,14 @@ func (r *Resolver) ResolveSource(ctx context.Context, rawAddress string, expecte
 	case AddressTypeInviteLink:
 		invite, err := api.MessagesCheckChatInvite(ctx, normAddr)
 		if err != nil {
-			return nil, fmt.Errorf("check chat invite '%s': %w", normAddr, err)
+			return nil, fmt.Errorf("check private invite: %w", err)
 		}
 
 		return r.inspectChatInvite(ctx, invite, rawAddress, expectedType)
 
 	case AddressTypePeerID:
-		// For numeric peer ID in MTProto, attempt fallback to mock or inspect
-		return r.resolveMockSource(rawAddress, normAddr, addrType, expectedType)
+		// Numeric IDs need an account-specific entity/access-hash cache, which is not implemented.
+		return nil, fmt.Errorf("numeric peer resolution requires a verified Telegram entity cache")
 
 	default:
 		return nil, fmt.Errorf("unsupported address type: %s", addrType)
@@ -206,16 +212,16 @@ func (r *Resolver) inspectResolvedPeer(ctx context.Context, resolved *tg.Contact
 		typeMismatch := expectedType != "" && expectedType != detectedType
 
 		return &domain.ResolveSourceResponse{
-			Address:                rawAddress,
-			PeerID:                 peerID,
-			Title:                  c.Title,
-			DetectedType:           detectedType,
-			AccessType:             accessType,
-			ExpectedType:           expectedType,
-			TypeMismatch:           typeMismatch,
-			Capabilities:           caps,
-			AccountHasAccess:       accountHasAccess,
-			CanIngest:              accountHasAccess,
+			Address:          rawAddress,
+			PeerID:           peerID,
+			Title:            c.Title,
+			DetectedType:     detectedType,
+			AccessType:       accessType,
+			ExpectedType:     expectedType,
+			TypeMismatch:     typeMismatch,
+			Capabilities:     caps,
+			AccountHasAccess: accountHasAccess,
+			CanIngest:        accountHasAccess,
 		}, nil
 
 	default:
@@ -336,20 +342,20 @@ func (r *Resolver) resolveMockSource(rawAddress, normAddr string, addrType Addre
 		accessType = domain.AccessTypePrivate
 	}
 
-	if strings.Contains(lower, "forum") || strings.Contains(lower, "topic") || expectedType == domain.TelegramSourceTypeForum {
+	if strings.Contains(lower, "forum") || strings.Contains(lower, "topic") {
 		detectedType = domain.TelegramSourceTypeForum
 		title = "انجمن گفتگوی بازار و تجهیزات"
 		if peerID == -1001234567890 {
 			peerID = -1001987654321
 		}
-	} else if strings.Contains(lower, "basic") || strings.Contains(lower, "group_small") || expectedType == domain.TelegramSourceTypeBasicGroup {
+	} else if strings.Contains(lower, "basic") || strings.Contains(lower, "group_small") {
 		detectedType = domain.TelegramSourceTypeBasicGroup
 		accessType = domain.AccessTypePrivate
 		title = "گروه مبادلات کالا"
 		if peerID == -1001234567890 {
 			peerID = -456789012
 		}
-	} else if strings.Contains(lower, "super") || strings.Contains(lower, "gap") || expectedType == domain.TelegramSourceTypeSupergroup {
+	} else if strings.Contains(lower, "super") || strings.Contains(lower, "gap") {
 		detectedType = domain.TelegramSourceTypeSupergroup
 		title = "سوپرگروه خرید و فروش لوازم دیجیتال"
 		if peerID == -1001234567890 {

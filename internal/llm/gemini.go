@@ -119,12 +119,12 @@ func (p *GeminiProvider) ExtractMarketplaceInfo(ctx context.Context, messageText
 
 	var extraction LLMExtractionResponse
 	if err := json.Unmarshal([]byte(rawJSON), &extraction); err != nil {
-		return nil, fmt.Errorf("unmarshal gemini json output: %w, raw: %s", err, rawJSON)
+		return nil, fmt.Errorf("unmarshal gemini json output: %w", err)
 	}
 
 	extraction.TokenUsage = usage
 
-	if err := ValidateLLMOutput(&extraction); err != nil {
+	if err := ValidateLLMEvidence(&extraction, messageText); err != nil {
 		return nil, fmt.Errorf("validate llm output: %w", err)
 	}
 
@@ -187,13 +187,9 @@ Output ONLY the Persian question text, without quotation marks or explanations.`
 }
 
 func (p *GeminiProvider) ValidateConsentResponse(ctx context.Context, sellerReply string) (bool, error) {
-	lower := strings.ToLower(strings.TrimSpace(sellerReply))
-	// Fast deterministic path
-	if strings.Contains(lower, "بله") || strings.Contains(lower, "اوکی") || strings.Contains(lower, "موافقم") || strings.Contains(lower, "بپرس") || strings.Contains(lower, "در خدمتم") {
-		return true, nil
-	}
-	if strings.Contains(lower, "خیر") || strings.Contains(lower, "نه") || strings.Contains(lower, "تمایلی ندارم") || strings.Contains(lower, "پیام نده") || strings.Contains(lower, "مزاحم نشو") {
-		return false, nil
+
+	if decision, known := deterministicConsent(sellerReply); known {
+		return decision, nil
 	}
 
 	if p.apiKey == "" {
@@ -230,7 +226,7 @@ Respond with JSON: {"consent": true} or {"consent": false}`, sellerReply)
 }
 
 func (p *GeminiProvider) callWithRetry(ctx context.Context, req geminiRequest) (string, TokenUsage, error) {
-	endpoint := fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent?key=%s", p.model, p.apiKey)
+	endpoint := fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent", p.model)
 
 	reqBytes, err := json.Marshal(req)
 	if err != nil {
@@ -246,17 +242,22 @@ func (p *GeminiProvider) callWithRetry(ctx context.Context, req geminiRequest) (
 			return "", TokenUsage{}, err
 		}
 		httpReq.Header.Set("Content-Type", "application/json")
+		httpReq.Header.Set("x-goog-api-key", p.apiKey)
 
 		resp, err := p.httpClient.Do(httpReq)
 		if err != nil {
 			lastErr = err
 			slog.Warn("gemini http error, retrying", "attempt", attempt, "error", err)
-			time.Sleep(backoff)
+			select {
+			case <-ctx.Done():
+				return "", TokenUsage{}, ctx.Err()
+			case <-time.After(backoff):
+			}
 			backoff *= 2
 			continue
 		}
 
-		bodyBytes, err := io.ReadAll(resp.Body)
+		bodyBytes, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 		resp.Body.Close()
 
 		if err != nil {
@@ -265,10 +266,14 @@ func (p *GeminiProvider) callWithRetry(ctx context.Context, req geminiRequest) (
 		}
 
 		if resp.StatusCode != http.StatusOK {
-			lastErr = fmt.Errorf("gemini api returned status %d: %s", resp.StatusCode, string(bodyBytes))
+			lastErr = fmt.Errorf("gemini api returned status %d", resp.StatusCode)
 			if resp.StatusCode == 429 || resp.StatusCode >= 500 {
 				slog.Warn("gemini rate limit or server error, retrying", "status", resp.StatusCode, "attempt", attempt)
-				time.Sleep(backoff)
+				select {
+				case <-ctx.Done():
+					return "", TokenUsage{}, ctx.Err()
+				case <-time.After(backoff):
+				}
 				backoff *= 2
 				continue
 			}
@@ -318,4 +323,20 @@ func fallbackQuestion(field domain.MissingField, productName string) string {
 	default:
 		return fmt.Sprintf("برای تکمیل اطلاعات %s، جزئیات بیشتر را بفرمایید.", productName)
 	}
+}
+
+// Refusal takes precedence over affirmative substrings; ambiguous replies do not consent.
+func deterministicConsent(text string) (bool, bool) {
+	lower := strings.ToLower(strings.TrimSpace(text))
+	for _, token := range []string{"خیر", "نه", "تمایلی ندارم", "پیام نده", "مزاحم نشو", "موافق نیستم", "no", "stop"} {
+		if strings.Contains(lower, token) {
+			return false, true
+		}
+	}
+	for _, token := range []string{"بله", "اوکی", "موافقم", "بپرس", "در خدمتم", "yes"} {
+		if strings.Contains(lower, token) {
+			return true, true
+		}
+	}
+	return false, false
 }

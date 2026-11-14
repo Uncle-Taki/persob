@@ -8,10 +8,11 @@ import (
 )
 
 type Config struct {
-	Environment string
-	Port        int
-	Host        string
-	LogLevel    string
+	Environment     string
+	Port            int
+	Host            string
+	LogLevel        string
+	DemoAuthEnabled bool
 
 	// PostgreSQL
 	PostgresHost     string
@@ -62,10 +63,11 @@ type Config struct {
 
 func Load() (*Config, error) {
 	cfg := &Config{
-		Environment: getEnv("ENVIRONMENT", "development"),
-		Port:        getEnvAsInt("PORT", 8080),
-		Host:        getEnv("HOST", "0.0.0.0"),
-		LogLevel:    getEnv("LOG_LEVEL", "info"),
+		Environment:     getEnv("ENVIRONMENT", "development"),
+		Port:            getEnvAsInt("PORT", 8080),
+		Host:            getEnv("HOST", "0.0.0.0"),
+		LogLevel:        getEnv("LOG_LEVEL", "info"),
+		DemoAuthEnabled: getEnvAsBool("DEMO_AUTH_ENABLED", false),
 
 		PostgresHost:     getEnv("POSTGRES_HOST", "localhost"),
 		PostgresPort:     getEnvAsInt("POSTGRES_PORT", 5432),
@@ -108,6 +110,15 @@ func Load() (*Config, error) {
 		ConversationAutoApprove:  getEnvAsBool("CONVERSATION_AUTO_APPROVE", false),
 	}
 
+	if cfg.DemoAuthEnabled && cfg.Environment != "development" && cfg.Environment != "test" {
+		return nil, fmt.Errorf("DEMO_AUTH_ENABLED is permitted only in development or test")
+	}
+	if cfg.LLMEnabled && (cfg.LLMProvider != "gemini" || cfg.GeminiAPIKey == "") {
+		return nil, fmt.Errorf("LLM_ENABLED requires the supported gemini provider and an API key")
+	}
+	if !cfg.TelegramMockMode && cfg.TelegramAppID != 0 && (cfg.TelegramSessionStorageKey == "" || cfg.TelegramSessionStorageKey == "perso-mtproto-session-encryption-key-32b!") {
+		return nil, fmt.Errorf("real Telegram mode requires a non-default session encryption key")
+	}
 	return cfg, nil
 }
 

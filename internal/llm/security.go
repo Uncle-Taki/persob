@@ -3,6 +3,7 @@ package llm
 import (
 	"errors"
 	"fmt"
+	"math"
 	"strings"
 
 	"github.com/perso/perso-mind/internal/domain"
@@ -68,44 +69,70 @@ func ValidateLLMOutput(resp *LLMExtractionResponse) error {
 	if resp == nil {
 		return errors.New("nil llm extraction response")
 	}
-
-	// Validate classification
+	validConfidence := func(v float64) bool { return !math.IsNaN(v) && !math.IsInf(v, 0) && v >= 0 && v <= 1 }
+	if !validConfidence(resp.Confidence) {
+		return errors.New("invalid extraction confidence")
+	}
 	switch resp.Classification {
 	case domain.ClassificationSeller, domain.ClassificationBuyer, domain.ClassificationNeither, domain.ClassificationUncertain:
-		// Valid
 	default:
-		resp.Classification = domain.ClassificationUncertain
+		return errors.New("invalid classification")
 	}
-
-	// Validate products
 	for i := range resp.Products {
 		p := &resp.Products[i]
-		if p.Quantity <= 0 {
-			p.Quantity = 1
+		if strings.TrimSpace(p.Name) == "" || p.Quantity <= 0 || !validConfidence(p.Confidence) {
+			return errors.New("invalid product attributes")
 		}
-		if p.Confidence < 0.0 || p.Confidence > 1.0 {
-			p.Confidence = 0.5
+		switch p.Condition {
+		case domain.ConditionNew, domain.ConditionLikeNew, domain.ConditionUsedGood, domain.ConditionUsedFair, domain.ConditionUsedPoor, domain.ConditionUnknown:
+		default:
+			return errors.New("invalid product condition")
 		}
-		// Strip potentially dangerous control characters
 		p.Name = cleanString(p.Name)
 		p.Brand = cleanString(p.Brand)
 		p.Model = cleanString(p.Model)
 	}
-
-	// Validate prices
-	for i := range resp.Prices {
-		pr := &resp.Prices[i]
-		if pr.Amount < 0 {
-			pr.Amount = 0
+	for _, p := range resp.Prices {
+		if p.Amount < 0 || !validConfidence(p.Confidence) {
+			return errors.New("invalid price attributes")
 		}
-		if pr.Currency != domain.CurrencyToman && pr.Currency != domain.CurrencyRial {
-			pr.Currency = domain.CurrencyToman
-		}
-		if pr.Confidence < 0.0 || pr.Confidence > 1.0 {
-			pr.Confidence = 0.5
+		if p.Currency != domain.CurrencyToman && p.Currency != domain.CurrencyRial {
+			return errors.New("unsupported currency")
 		}
 	}
+	if resp.Location != nil && !validConfidence(resp.Location.Confidence) {
+		return errors.New("invalid location confidence")
+	}
+	for _, f := range resp.MissingFields {
+		switch f {
+		case domain.FieldPrice, domain.FieldBranded, domain.FieldManufacturer, domain.FieldExpiration, domain.FieldCity, domain.FieldTehranArea:
+		default:
+			return errors.New("unsupported missing field")
+		}
+	}
+	return nil
+}
 
+// Evidence is checked against the original input, rather than trusted on model assertion.
+// A valid substring is necessary provenance, not proof that every attribute is true.
+func ValidateLLMEvidence(resp *LLMExtractionResponse, original string) error {
+	if err := ValidateLLMOutput(resp); err != nil {
+		return err
+	}
+	check := func(span string) bool { return strings.TrimSpace(span) != "" && strings.Contains(original, span) }
+	for _, p := range resp.Products {
+		if !check(p.EvidenceSpan) {
+			return errors.New("unsupported product evidence")
+		}
+	}
+	for _, p := range resp.Prices {
+		if !check(p.EvidenceSpan) {
+			return errors.New("unsupported price evidence")
+		}
+	}
+	if resp.Location != nil && !check(resp.Location.EvidenceSpan) {
+		return errors.New("unsupported location evidence")
+	}
 	return nil
 }
 

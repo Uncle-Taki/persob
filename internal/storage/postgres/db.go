@@ -63,6 +63,12 @@ func (db *DB) Migrate(ctx context.Context) error {
 	}
 	defer tx.Rollback(ctx)
 
+	// API, collector and worker may start together against the same database.
+	// Serialize schema changes before checking/creating extensions and tables.
+	if _, err := tx.Exec(ctx, "SELECT pg_advisory_xact_lock(344760767311)"); err != nil {
+		return fmt.Errorf("acquire migration lock: %w", err)
+	}
+
 	if _, err := tx.Exec(ctx, initialSchemaSQL); err != nil {
 		return fmt.Errorf("execute initial schema migration: %w", err)
 	}

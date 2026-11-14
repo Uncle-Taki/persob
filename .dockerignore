@@ -1,0 +1,14 @@
+.git
+.env
+.env.*
+!.env.example
+sessions
+*.session
+*.session-journal
+session.json
+telegram_session.dat
+bin
+dist
+coverage
+*.log
+node_modules

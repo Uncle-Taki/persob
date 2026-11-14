@@ -151,7 +151,7 @@ func (p *MessageProcessor) ProcessStreamMessage(ctx context.Context, msgID strin
 
 	// 4. Save extracted result to MongoDB
 	if err := p.extractionRepo.SaveExtraction(ctx, extracted); err != nil {
-		slog.Error("failed to save extracted message in mongodb", "error", err)
+		return fmt.Errorf("save extracted message: %w", err)
 	}
 
 	// 5. Handle Seller advertisement workflow
@@ -269,8 +269,7 @@ func (p *MessageProcessor) handleSellerAdvertisement(
 
 		// Upsert offer into PostgreSQL
 		if err := p.offerRepo.Create(ctx, offer); err != nil {
-			slog.Error("failed to create offer", "error", err)
-			continue
+			return fmt.Errorf("persist seller offer: %w", err)
 		}
 
 		slog.Info("persisted seller offer to postgresql", "offer_id", offer.ID, "source_id", sourceMsgID, "product", extProd.Name)

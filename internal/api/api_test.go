@@ -19,6 +19,7 @@ func TestHealthEndpoints(t *testing.T) {
 	sourceH := handlers.NewTelegramSourceHandler(nil, resolver)
 
 	router := api.NewRouter(&api.Handlers{
+		AllowDemoAuth:         true,
 		HealthHandler:         healthH,
 		InterestHandler:       handlers.NewInterestHandler(nil, nil),
 		WatchSourceHandler:    handlers.NewWatchSourceHandler(nil),
@@ -57,6 +58,7 @@ func TestResolveSourceEndpoint(t *testing.T) {
 	sourceH := handlers.NewTelegramSourceHandler(nil, resolver)
 
 	router := api.NewRouter(&api.Handlers{
+		AllowDemoAuth:         true,
 		HealthHandler:         handlers.NewHealthHandler(nil, nil, nil),
 		InterestHandler:       handlers.NewInterestHandler(nil, nil),
 		WatchSourceHandler:    handlers.NewWatchSourceHandler(nil),

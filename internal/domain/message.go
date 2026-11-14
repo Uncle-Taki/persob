@@ -27,32 +27,33 @@ const (
 )
 
 type TelegramMessage struct {
-	ID                primitive.ObjectID     `bson:"_id,omitempty" json:"id"`
-	SourceID          string                 `bson:"source_id,omitempty" json:"source_id,omitempty"`
-	TelegramMessageID int64                  `bson:"telegram_message_id" json:"telegram_message_id"`
-	TelegramChatID    int64                  `bson:"telegram_chat_id" json:"telegram_chat_id"`
-	TelegramPeerID    int64                  `bson:"telegram_peer_id,omitempty" json:"telegram_peer_id,omitempty"`
-	TopicID           *int64                 `bson:"topic_id,omitempty" json:"topic_id,omitempty"`
-	LinkedPostID      *int64                 `bson:"linked_post_id,omitempty" json:"linked_post_id,omitempty"`
-	ChatTitle         string                 `bson:"chat_title,omitempty" json:"chat_title,omitempty"`
-	ChatUsername      string                 `bson:"chat_username,omitempty" json:"chat_username,omitempty"`
-	ChatType          string                 `bson:"chat_type,omitempty" json:"chat_type,omitempty"`
-	SourceType        string                 `bson:"source_type,omitempty" json:"source_type,omitempty"`
-	SenderID          int64                  `bson:"sender_id" json:"sender_id"`
-	SenderType        string                 `bson:"sender_type,omitempty" json:"sender_type,omitempty"`
-	SenderUsername    string                 `bson:"sender_username,omitempty" json:"sender_username,omitempty"`
-	SenderDisplayName string                 `bson:"sender_display_name,omitempty" json:"sender_display_name,omitempty"`
-	MessageText       string                 `bson:"message_text" json:"message_text"`
-	MessageEntities   []interface{}          `bson:"message_entities,omitempty" json:"message_entities,omitempty"`
-	MediaMetadata     map[string]interface{} `bson:"media_metadata,omitempty" json:"media_metadata,omitempty"`
-	ReplyToMessageID  *int64                 `bson:"reply_to_message_id,omitempty" json:"reply_to_message_id,omitempty"`
-	MessageDate       time.Time              `bson:"message_date" json:"message_date"`
-	EditedDate        *time.Time             `bson:"edited_date,omitempty" json:"edited_date,omitempty"`
-	ReceivedAt        time.Time              `bson:"received_at" json:"received_at"`
-	Language          string                 `bson:"language,omitempty" json:"language,omitempty"`
-	NormalizedText    string                 `bson:"normalized_text,omitempty" json:"normalized_text,omitempty"`
-	ProcessingStatus  ProcessingStatus       `bson:"processing_status" json:"processing_status"`
-	ProcessingVersion int                    `bson:"processing_version" json:"processing_version"`
+	OriginalMessageText string                 `bson:"original_message_text,omitempty" json:"original_message_text,omitempty"`
+	ID                  primitive.ObjectID     `bson:"_id,omitempty" json:"id"`
+	SourceID            string                 `bson:"source_id,omitempty" json:"source_id,omitempty"`
+	TelegramMessageID   int64                  `bson:"telegram_message_id" json:"telegram_message_id"`
+	TelegramChatID      int64                  `bson:"telegram_chat_id" json:"telegram_chat_id"`
+	TelegramPeerID      int64                  `bson:"telegram_peer_id,omitempty" json:"telegram_peer_id,omitempty"`
+	TopicID             *int64                 `bson:"topic_id,omitempty" json:"topic_id,omitempty"`
+	LinkedPostID        *int64                 `bson:"linked_post_id,omitempty" json:"linked_post_id,omitempty"`
+	ChatTitle           string                 `bson:"chat_title,omitempty" json:"chat_title,omitempty"`
+	ChatUsername        string                 `bson:"chat_username,omitempty" json:"chat_username,omitempty"`
+	ChatType            string                 `bson:"chat_type,omitempty" json:"chat_type,omitempty"`
+	SourceType          string                 `bson:"source_type,omitempty" json:"source_type,omitempty"`
+	SenderID            int64                  `bson:"sender_id" json:"sender_id"`
+	SenderType          string                 `bson:"sender_type,omitempty" json:"sender_type,omitempty"`
+	SenderUsername      string                 `bson:"sender_username,omitempty" json:"sender_username,omitempty"`
+	SenderDisplayName   string                 `bson:"sender_display_name,omitempty" json:"sender_display_name,omitempty"`
+	MessageText         string                 `bson:"message_text" json:"message_text"`
+	MessageEntities     []interface{}          `bson:"message_entities,omitempty" json:"message_entities,omitempty"`
+	MediaMetadata       map[string]interface{} `bson:"media_metadata,omitempty" json:"media_metadata,omitempty"`
+	ReplyToMessageID    *int64                 `bson:"reply_to_message_id,omitempty" json:"reply_to_message_id,omitempty"`
+	MessageDate         time.Time              `bson:"message_date" json:"message_date"`
+	EditedDate          *time.Time             `bson:"edited_date,omitempty" json:"edited_date,omitempty"`
+	ReceivedAt          time.Time              `bson:"received_at" json:"received_at"`
+	Language            string                 `bson:"language,omitempty" json:"language,omitempty"`
+	NormalizedText      string                 `bson:"normalized_text,omitempty" json:"normalized_text,omitempty"`
+	ProcessingStatus    ProcessingStatus       `bson:"processing_status" json:"processing_status"`
+	ProcessingVersion   int                    `bson:"processing_version" json:"processing_version"`
 }
 
 type TelegramUpdate struct {

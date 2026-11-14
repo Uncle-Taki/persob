@@ -81,5 +81,6 @@ func (m *MockProvider) GenerateConversationQuestion(
 }
 
 func (m *MockProvider) ValidateConsentResponse(ctx context.Context, sellerReply string) (bool, error) {
-	return true, nil
+	consent, _ := deterministicConsent(sellerReply)
+	return consent, nil
 }

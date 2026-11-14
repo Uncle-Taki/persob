@@ -1,6 +1,6 @@
 -- Seed canonical products, aliases and default demo user
 INSERT INTO users (id, username, email, full_name, role)
-VALUES 
+VALUES
     ('11111111-1111-1111-1111-111111111111', 'demo_buyer', 'buyer@perso.local', 'کاربر تستی پرسو', 'user')
 ON CONFLICT (id) DO NOTHING;
 
@@ -38,3 +38,25 @@ ON CONFLICT DO NOTHING;
 INSERT INTO watch_sources (user_id, telegram_chat_id, username, title, source_type, sell_enabled, buy_enabled, monitoring_status)
 VALUES ('11111111-1111-1111-1111-111111111111', -1001234567890, 'iran_tech_bazaar', 'بازار موبایل و لپتاپ پایتخت', 'channel', false, true, 'active')
 ON CONFLICT DO NOTHING;
+
+-- Seed initial telegram source matching existing watch source for demo buyer
+INSERT INTO telegram_sources (
+    id, owner_id, telegram_peer_id, title, username, source_type, access_type,
+    expected_type, detected_type, linked_discussion_peer_id, capabilities, is_active, ingestion_status
+)
+VALUES (
+    '33333333-3333-3333-3333-333333333331',
+    '11111111-1111-1111-1111-111111111111',
+    -1001234567890,
+    'بازار موبایل و لپتاپ پایتخت',
+    'iran_tech_bazaar',
+    'broadcast_channel',
+    'public',
+    'broadcast_channel',
+    'broadcast_channel',
+    -1001234567899,
+    '{"can_read_history": true, "has_topics": false, "has_discussion": true, "sender_metadata_available": false}'::jsonb,
+    true,
+    'active'
+)
+ON CONFLICT (owner_id, telegram_peer_id) DO NOTHING;

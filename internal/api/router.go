@@ -13,6 +13,8 @@ import (
 var openapiSpec []byte
 
 type Handlers struct {
+	// Demo identity is an explicit local-development opt-in, never authentication.
+	AllowDemoAuth         bool
 	HealthHandler         *handlers.HealthHandler
 	InterestHandler       *handlers.InterestHandler
 	WatchSourceHandler    *handlers.WatchSourceHandler
@@ -32,7 +34,6 @@ func NewRouter(h *Handlers) http.Handler {
 	r.Use(chimiddleware.RealIP)
 	r.Use(LoggingMiddleware)
 	r.Use(CORSMiddleware)
-	r.Use(UserAuthMockMiddleware)
 
 	// Health and Readiness
 	r.Get("/health", h.HealthHandler.Health)
@@ -47,6 +48,7 @@ func NewRouter(h *Handlers) http.Handler {
 
 	// API v1 Routes
 	r.Route("/api/v1", func(r chi.Router) {
+		r.Use(AuthenticationMiddleware(h.AllowDemoAuth))
 		// Interests
 		r.Route("/interests", func(r chi.Router) {
 			r.Get("/", h.InterestHandler.List)

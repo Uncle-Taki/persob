@@ -94,6 +94,41 @@ func TestBroadcastChannelAdapterDoesNotFabricateSenderMetadata(t *testing.T) {
 	}
 }
 
+func TestBasicGroupAdapterDoesNotTreatChannelOrMissingSenderAsAUser(t *testing.T) {
+	adapter := telegram.GetIngestionAdapter(domain.TelegramSourceTypeBasicGroup, false)
+
+	tests := []struct {
+		name     string
+		from     tg.PeerClass
+		wantID   int64
+		wantType string
+	}{
+		{name: "anonymous channel admin", from: &tg.PeerChannel{ChannelID: 55}, wantType: "channel"},
+		{name: "missing sender", wantType: "unknown"},
+		{name: "user id without cached entity", from: &tg.PeerUser{UserID: 88}, wantID: 88, wantType: "user"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			msg, err := adapter.AdaptMessage(context.Background(), tg.Entities{}, &tg.Message{
+				ID: 4, PeerID: &tg.PeerChat{ChatID: 22}, FromID: tt.from,
+				Message: "فروش کالا", Date: int(time.Now().Unix()),
+			}, &domain.TelegramSource{TelegramPeerID: -22})
+			if err != nil {
+				t.Fatalf("AdaptMessage error: %v", err)
+			}
+			if msg.SenderID != tt.wantID {
+				t.Errorf("SenderID = %d, want %d", msg.SenderID, tt.wantID)
+			}
+			if msg.SenderType != tt.wantType {
+				t.Errorf("SenderType = %q, want %q", msg.SenderType, tt.wantType)
+			}
+			if msg.SenderUsername != "" || msg.SenderDisplayName != "" {
+				t.Errorf("fabricated user metadata: username=%q display_name=%q", msg.SenderUsername, msg.SenderDisplayName)
+			}
+		})
+	}
+}
+
 func TestLinkedDiscussionAdapterAssociatesPostID(t *testing.T) {
 	adapter := telegram.GetIngestionAdapter(domain.TelegramSourceTypeBroadcastChannel, true)
 

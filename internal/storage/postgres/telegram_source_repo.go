@@ -284,3 +284,11 @@ func (r *TelegramSourceRepo) Delete(ctx context.Context, id uuid.UUID, ownerID u
 	}
 	return nil
 }
+
+// PeerMonitoringStatus distinguishes a paused normalized source from no registry
+// entry, so the legacy allowlist cannot reactivate a paused normalized source.
+func (r *TelegramSourceRepo) PeerMonitoringStatus(ctx context.Context, peerID int64) (configured, active bool, err error) {
+	err = r.db.Pool.QueryRow(ctx, `SELECT COUNT(*) > 0, COALESCE(BOOL_OR(is_active AND ingestion_status = 'active'), false)
+ FROM telegram_sources WHERE telegram_peer_id=$1 OR linked_discussion_peer_id=$1`, peerID).Scan(&configured, &active)
+	return
+}

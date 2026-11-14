@@ -42,7 +42,8 @@ func Connect(ctx context.Context, uri, dbName string) (*DB, error) {
 
 	// Initialize indexes
 	if err := db.EnsureIndexes(ctx); err != nil {
-		slog.Warn("failed to initialize some mongodb indexes", "error", err)
+		_ = client.Disconnect(ctx)
+		return nil, fmt.Errorf("initialize required mongodb indexes: %w", err)
 	}
 
 	return db, nil

@@ -2,7 +2,9 @@ package handlers
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
@@ -35,113 +37,76 @@ func (h *TelegramSourceHandler) Resolve(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	if req.Address == "" {
+	if strings.TrimSpace(req.Address) == "" || !validExpectedType(req.ExpectedType) {
 		httputil.RespondError(w, http.StatusBadRequest, "address is required (username, link, or ID)")
 		return
 	}
 
 	resp, err := h.resolver.ResolveSource(r.Context(), req.Address, req.ExpectedType)
 	if err != nil {
-		httputil.RespondError(w, http.StatusBadRequest, "Failed to resolve Telegram entity: "+err.Error())
+		respondResolutionError(w, err)
 		return
 	}
 
 	httputil.RespondJSON(w, http.StatusOK, resp)
 }
 
-// Create resolves and persists a verified Telegram source
+// Create always resolves the address; client-supplied entity metadata is untrusted.
 func (h *TelegramSourceHandler) Create(w http.ResponseWriter, r *http.Request) {
 	userID := httputil.GetUserIDFromContext(r.Context())
-
 	var req domain.CreateTelegramSourceRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		httputil.RespondError(w, http.StatusBadRequest, "Invalid request body")
 		return
 	}
-
-	if req.Address == "" && req.TelegramPeerID == 0 {
-		httputil.RespondError(w, http.StatusBadRequest, "address or telegram_peer_id is required")
+	if strings.TrimSpace(req.Address) == "" || !validExpectedType(req.ExpectedType) {
+		httputil.RespondError(w, http.StatusBadRequest, "A Telegram address and a supported expected_type are required")
 		return
 	}
-
-	// 1. Resolve source if metadata was not fully supplied
-	var resolved *domain.ResolveSourceResponse
-	var err error
-
-	if req.Address != "" {
-		resolved, err = h.resolver.ResolveSource(r.Context(), req.Address, req.ExpectedType)
-		if err != nil {
-			httputil.RespondError(w, http.StatusBadRequest, "Failed to resolve Telegram entity: "+err.Error())
-			return
-		}
+	resolved, err := h.resolver.ResolveSource(r.Context(), req.Address, req.ExpectedType)
+	if err != nil {
+		respondResolutionError(w, err)
+		return
 	}
-
-	peerID := req.TelegramPeerID
-	accessHash := req.TelegramAccessHash
-	username := req.Username
-	title := req.Title
-	detectedType := req.SourceType
-	accessType := req.AccessType
-	linkedDiscussion := req.LinkedDiscussionPeerID
-	var capabilities domain.SourceCapabilities
-
-	if resolved != nil {
-		peerID = resolved.PeerID
-		accessHash = resolved.AccessHash
-		if username == "" {
-			username = resolved.Username
-		}
-		if title == "" {
-			title = resolved.Title
-		}
-		detectedType = resolved.DetectedType
-		accessType = resolved.AccessType
-		if linkedDiscussion == nil {
-			linkedDiscussion = resolved.LinkedDiscussionPeerID
-		}
-		capabilities = resolved.Capabilities
-
-		// Authorization & Private access check: do not allow private source if account cannot access
-		if !resolved.CanIngest {
-			httputil.RespondError(w, http.StatusForbidden, "Connected Telegram account does not have access to this private source")
-			return
-		}
-	} else if req.Capabilities != nil {
-		capabilities = *req.Capabilities
+	if !resolved.AccountHasAccess || !resolved.CanIngest || !resolved.Capabilities.CanReadHistory || resolved.PeerID == 0 {
+		httputil.RespondError(w, http.StatusForbidden, "Connected Telegram account cannot read this source")
+		return
 	}
-
-	sourceType := detectedType
-	if sourceType == "" {
-		sourceType = domain.TelegramSourceTypeBroadcastChannel
+	if resolved.TypeMismatch {
+		httputil.RespondError(w, http.StatusConflict, "Requested source type does not match the Telegram entity")
+		return
 	}
-	if accessType == "" {
-		accessType = domain.AccessTypePublic
-	}
-
 	source := &domain.TelegramSource{
-		ID:                     uuid.New(),
-		OwnerID:                userID,
-		TelegramPeerID:         peerID,
-		TelegramAccessHash:     accessHash,
-		Username:               username,
-		Title:                  title,
-		SourceType:             sourceType,
-		AccessType:             accessType,
-		ExpectedType:           req.ExpectedType,
-		DetectedType:           sourceType,
-		LinkedDiscussionPeerID: linkedDiscussion,
-		Capabilities:           capabilities,
-		IsActive:               true,
-		IngestionStatus:        domain.IngestionStatusActive,
-		LastMessageID:          0,
+		ID: uuid.New(), OwnerID: userID,
+		TelegramPeerID: resolved.PeerID, TelegramAccessHash: resolved.AccessHash,
+		Username: resolved.Username, Title: resolved.Title,
+		SourceType: resolved.DetectedType, DetectedType: resolved.DetectedType,
+		AccessType: resolved.AccessType, ExpectedType: req.ExpectedType,
+		LinkedDiscussionPeerID: resolved.LinkedDiscussionPeerID, Capabilities: resolved.Capabilities,
+		IsActive: true, IngestionStatus: domain.IngestionStatusActive,
 	}
-
 	if err := h.sourceRepo.Create(r.Context(), source); err != nil {
-		httputil.RespondError(w, http.StatusInternalServerError, "Failed to create telegram source: "+err.Error())
+		httputil.RespondError(w, http.StatusInternalServerError, "Failed to create Telegram source")
 		return
 	}
-
 	httputil.RespondJSON(w, http.StatusCreated, source)
+}
+
+func validExpectedType(t domain.TelegramSourceType) bool {
+	switch t {
+	case "", domain.TelegramSourceTypeBasicGroup, domain.TelegramSourceTypeSupergroup, domain.TelegramSourceTypeForum, domain.TelegramSourceTypeBroadcastChannel:
+		return true
+	}
+	return false
+}
+
+func respondResolutionError(w http.ResponseWriter, err error) {
+	if errors.Is(err, telegram.ErrResolverUnavailable) {
+		httputil.RespondError(w, http.StatusServiceUnavailable, "Telegram resolver is unavailable")
+		return
+	}
+	// Never echo private invite hashes or upstream error payloads into API responses.
+	httputil.RespondError(w, http.StatusBadRequest, "Unable to resolve the Telegram source")
 }
 
 // List returns all configured Telegram sources for the active user
@@ -196,6 +161,11 @@ func (h *TelegramSourceHandler) GetCapabilities(w http.ResponseWriter, r *http.R
 		return
 	}
 
+	if source.OwnerID != httputil.GetUserIDFromContext(r.Context()) {
+		httputil.RespondError(w, http.StatusForbidden, "Access denied")
+		return
+	}
+
 	httputil.RespondJSON(w, http.StatusOK, map[string]interface{}{
 		"id":           source.ID,
 		"source_type":  source.SourceType,
@@ -212,9 +182,26 @@ func (h *TelegramSourceHandler) UpdateStatus(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
+	source, err := h.sourceRepo.GetByID(r.Context(), id)
+	if err != nil {
+		httputil.RespondError(w, http.StatusNotFound, "Source not found")
+		return
+	}
+	if source.OwnerID != httputil.GetUserIDFromContext(r.Context()) {
+		httputil.RespondError(w, http.StatusForbidden, "Access denied")
+		return
+	}
+
 	var req domain.UpdateTelegramSourceStatusRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		httputil.RespondError(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+
+	switch req.IngestionStatus {
+	case domain.IngestionStatusActive, domain.IngestionStatusPaused, domain.IngestionStatusError, domain.IngestionStatusUnauthorized:
+	default:
+		httputil.RespondError(w, http.StatusBadRequest, "Invalid ingestion status")
 		return
 	}
 

@@ -16,13 +16,13 @@ var (
 	tomanMarkerRegex = regexp.MustCompile(`(?i)(تومان|تومن|ت|toman)`)
 
 	// Pattern 1: Compound million + thousand: "۹۸ میلیون و ۵۰۰ هزار تومان"
-	compoundPatternRegex = regexp.MustCompile(`(?i)([0-9۰-۹]+)\s*میلیون\s*(?:و\s*)?([0-9۰-۹]+)\s*هزار\s*(تومان|تومن|ت|ریال)?`)
+	compoundPatternRegex = regexp.MustCompile(`(?i)([0-9۰-۹]+)\s*میلیون\s*(?:و\s*)?([0-9۰-۹]+)\s*هزار\s*(تومان|تومن|ت|ریال|toman|rial)?`)
 
 	// Pattern 2: Multiplier with scale word: "98.5 میلیون تومان", "98 میلیون", "98 م ت", "98 م"
-	scalePatternRegex = regexp.MustCompile(`(?i)(?:قیمت\s*[:=-]?\s*)?([0-9۰-۹]+(?:[.,/٫][0-9۰-۹]+)?)\s*(میلیون|میلیارد|هزار|همت|م|k)\s*(تومان|تومن|ت|ریال)?`)
+	scalePatternRegex = regexp.MustCompile(`(?i)(?:قیمت\s*[:=-]?\s*)?([0-9۰-۹]+(?:[.,/٫][0-9۰-۹]+)?)\s*(میلیون|میلیارد|هزار|همت|م|k)\s*(تومان|تومن|ت|ریال|toman|rial)?`)
 
 	// Pattern 3: Full formatted digit with thousand separators: "98,000,000 تومان", "98.000.000 ت"
-	fullNumberRegex = regexp.MustCompile(`(?i)(?:قیمت\s*[:=-]?\s*)?([0-9۰-۹]{1,3}(?:[,\.،][0-9۰-۹]{3}){1,4})\s*(تومان|تومن|ت|ریال)?`)
+	fullNumberRegex = regexp.MustCompile(`(?i)(?:قیمت\s*[:=-]?\s*)?([0-9۰-۹]{1,3}(?:[,\.،][0-9۰-۹]{3}){1,4})\s*(تومان|تومن|ت|ریال|toman|rial)?`)
 
 	// Exclude indicators for false positives (avoid matching "اولترا")
 	storageRegex = regexp.MustCompile(`(?i)(?:^|[^\p{L}\p{N}])(?:[0-9۰-۹]+\s*(?:گیگ|gig|gb|ترابایت|tb)|ram|رم)(?:$|[^\p{L}\p{N}])`)

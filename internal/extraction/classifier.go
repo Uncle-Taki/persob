@@ -10,10 +10,10 @@ import (
 
 var (
 	// Seller keywords
-	sellerPattern = regexp.MustCompile(`(?i)(فروش|فروش فوری|فروشی|موجود داریم|موجود است|موجود میباشد|آکبند|پلمپ|پلمب|کارکرده|دست دوم|برای فروش|stock|فروشگاه|استوک|ارسال به سراسر|قیمت مقطوع|فروشنده)`)
+	sellerPattern = regexp.MustCompile(`(?i)(\b(?:selling|for sale|wts)\b|فروش|فروش فوری|فروشی|موجود داریم|موجود است|موجود میباشد|آکبند|پلمپ|پلمب|کارکرده|دست دوم|برای فروش|stock|فروشگاه|استوک|ارسال به سراسر|قیمت مقطوع|فروشنده)`)
 
 	// Buyer keywords
-	buyerPattern = regexp.MustCompile(`(?i)(خریدار|خریدارم|خریدار فوری|نیازمند|خریداری|کسی داره|خرید|میخوام|خریداریم|طالب|خریدار نقدی|نیاز دارم|خریدار دستگاه)`)
+	buyerPattern = regexp.MustCompile(`(?i)(\b(?:wtb|buying|wanted|looking for)\b|خریدار|خریدارم|خریدار فوری|نیازمند|خریداری|کسی داره|خرید|میخوام|خریداریم|طالب|خریدار نقدی|نیاز دارم|خریدار دستگاه)`)
 
 	// Spam / Neither keywords (announcements, rules, links, admin notes)
 	neitherPattern = regexp.MustCompile(`(?i)(قوانین گروه|قوانین|تبلیغات|ادمین|لینک کانال|عضو شوید|فیلترشکن|vpn|کانفیگ|ارز دیجیتال|سیگنال|صرافی)`)

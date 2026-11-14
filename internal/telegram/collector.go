@@ -63,8 +63,8 @@ func NewCollector(
 		producer:           producer,
 	}
 
-	if cfg.TelegramMockMode || cfg.TelegramAppID == 0 {
-		slog.Info("initializing mock telegram client (mock mode or missing AppID)")
+	if cfg.TelegramMockMode {
+		slog.Info("initializing explicitly configured mock telegram client")
 		c.mockClient = NewMockClient()
 		c.mockClient.SetMessageHandler(c.processIncomingMessage)
 		c.resolver = NewResolver(nil, true)
@@ -77,6 +77,9 @@ func NewCollector(
 
 // Start runs the collector until ctx is canceled
 func (c *Collector) Start(ctx context.Context) error {
+	if c.mockClient == nil && c.cfg.TelegramAppID <= 0 {
+		return fmt.Errorf("real Telegram ingestion requires credentials; mock mode must be explicit")
+	}
 	c.mu.Lock()
 	if c.running {
 		c.mu.Unlock()
@@ -195,6 +198,13 @@ func (c *Collector) handleTelegramMessageClass(ctx context.Context, e tg.Entitie
 	// 1. Check normalized telegram_sources registry
 	var matchedSource *domain.TelegramSource
 	if c.telegramSourceRepo != nil {
+		configured, active, err := c.telegramSourceRepo.PeerMonitoringStatus(ctx, peerID)
+		if err != nil {
+			return fmt.Errorf("check normalized source: %w", err)
+		}
+		if configured && !active {
+			return nil
+		}
 		activeSources, err := c.telegramSourceRepo.ListActiveSources(ctx)
 		if err == nil {
 			for _, s := range activeSources {
@@ -240,22 +250,35 @@ func (c *Collector) handleTelegramMessageClass(ctx context.Context, e tg.Entitie
 		telegramMsg.EditedDate = &t
 	}
 
-	// Update sync checkpoint if matched source exists
-	if matchedSource != nil && c.telegramSourceRepo != nil {
-		_ = c.telegramSourceRepo.UpdateSyncCheckpoint(ctx, matchedSource.ID, int64(msg.ID), time.Now().UTC())
+	if err := c.processIncomingMessage(ctx, telegramMsg); err != nil {
+		return err
 	}
-
-	return c.processIncomingMessage(ctx, telegramMsg)
+	// Channel and discussion IDs belong to different sequences.
+	if matchedSource != nil && c.telegramSourceRepo != nil && !isDiscussion {
+		return c.telegramSourceRepo.UpdateSyncCheckpoint(ctx, matchedSource.ID, int64(msg.ID), time.Now().UTC())
+	}
+	return nil
 }
 
 func (c *Collector) processIncomingMessage(ctx context.Context, msg *domain.TelegramMessage) error {
-	// 1. Double check monitored source
-	monitored, err := c.watchSourceRepo.IsChatMonitored(ctx, msg.TelegramChatID)
-	if err != nil {
-		slog.Error("watch source check error", "chat_id", msg.TelegramChatID, "error", err)
+
+	// The normalized registry takes precedence, including pauses. Fall back only
+	// for peers which have no normalized source configuration.
+	var configured, monitored bool
+	var err error
+	if c.telegramSourceRepo != nil {
+		configured, monitored, err = c.telegramSourceRepo.PeerMonitoringStatus(ctx, msg.TelegramChatID)
+		if err != nil {
+			return fmt.Errorf("check normalized source: %w", err)
+		}
+	}
+	if !configured && c.watchSourceRepo != nil {
+		monitored, err = c.watchSourceRepo.IsChatMonitored(ctx, msg.TelegramChatID)
+		if err != nil {
+			return fmt.Errorf("check legacy source: %w", err)
+		}
 	}
 	if !monitored && c.mockClient == nil {
-		slog.Debug("ignoring message from unmonitored chat", "chat_id", msg.TelegramChatID)
 		return nil
 	}
 
