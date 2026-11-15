@@ -126,8 +126,11 @@ func (e *Engine) calculateProductStatistics(ctx context.Context, productID uuid.
 		LastCalculated: time.Now(),
 	}
 
-	// Persist aggregate in database
-	_ = e.analyticsRepo.UpsertAggregate(ctx, stats)
+	// Scoped buyer calculations must never overwrite the workspace-wide cached
+	// aggregate; doing so would leak one buyer's denominator into another view.
+	if assignedUser == nil {
+		_ = e.analyticsRepo.UpsertAggregate(ctx, stats)
+	}
 
 	return stats, nil
 }
