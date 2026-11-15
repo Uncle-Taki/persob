@@ -2,7 +2,7 @@
 
 ## Release model
 
-One configured operator/workspace and one Telegram account. This is not a multi-tenant deployment. The live catalog is electronics. On first upgrade, legacy unowned offers/conversations are assigned to `OPERATOR_USER_ID`. Take backups before upgrading. A separate OIDC/multi-user rollout requires a new access-control review.
+One workspace and one Telegram account, with session-authenticated super_admin/admin/buyer accounts. See [identity and upgrade](identity.md) before moving an existing installation to migration 004. Shared-source buyer access remains disabled until step 3; the catalog remains electronics until the healthcare slice. Historical offers/conversations keep their configured operator ownership. Take backups before upgrading.
 
 The parent `compose.yaml` is the deployment entry point. `compose.demo.yaml` adds sample first-boot data to a separate `perso-demo` project. Never attach that override to production volumes.
 

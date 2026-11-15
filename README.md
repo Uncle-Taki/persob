@@ -1,9 +1,9 @@
 # Perso backend
 
-Go API, Telegram gateway, Redis worker, extraction/matching and storage for the Perso single-operator workspace. Use the parent `persop` repository to run the full stack; its Compose deployment builds the `persof` React frontend.
+Go API, Telegram gateway, Redis worker, extraction/matching and storage for the Perso shared workspace with three-role password accounts. Use the parent `persop` repository to run the full stack; its Compose deployment builds the `persof` React frontend.
 
 - **Go:** 1.26.11; **PostgreSQL:** 16; **MongoDB:** 7; **Redis:** 7.
-- `api` serves authenticated REST endpoints. `API_TOKEN` maps to the configured `OPERATOR_USER_ID`; caller-provided `X-User-ID` is ignored.
+- `api` serves session-authenticated REST endpoints. `super_admin`, `admin`, and `buyer` are enforced by the backend. `API_TOKEN` is monitoring-only; caller-provided identities/roles are ignored. See [accounts and upgrade](docs/identity.md).
 - `gateway` (also `collector`) owns the sole encrypted Telegram session, source resolver, history scans, inbound reply routing and outbound dispatch. API and worker processes do not open that session.
 - `worker` processes immutable queued snapshots, reclaims pending messages and deduplicates per-item offers/history/matches.
 - `login` is interactive account authorization, without database dependencies. Stop the gateway first.

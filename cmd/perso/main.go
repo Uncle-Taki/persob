@@ -17,6 +17,7 @@ import (
 	"github.com/perso/perso-mind/internal/api/handlers"
 	"github.com/perso/perso-mind/internal/config"
 	"github.com/perso/perso-mind/internal/conversation"
+	"github.com/perso/perso-mind/internal/identity"
 	"github.com/perso/perso-mind/internal/llm"
 	"github.com/perso/perso-mind/internal/matching"
 	"github.com/perso/perso-mind/internal/queue"
@@ -72,6 +73,16 @@ func main() {
 		return
 	}
 
+	identityService := identity.New(pgDB.Pool, cfg.AuthCookieSecure)
+	if cmd == "api" || cmd == "all" || cmd == "bootstrap-admin" {
+		if err := identityService.Bootstrap(ctx, *cfg.OwnerID(), cfg.BootstrapUsername, cfg.BootstrapPassword); err != nil {
+			slog.Error("account bootstrap failed", "error", err)
+			os.Exit(1)
+		}
+		if cmd == "bootstrap-admin" {
+			return
+		}
+	}
 	// Connect MongoDB
 	mongoDB, err := mongodb.Connect(ctx, cfg.MongoURI, cfg.MongoDB)
 	if err != nil {
@@ -124,7 +135,7 @@ func main() {
 	// Initial release has one explicit operator/workspace. Legacy unowned data
 	// is adopted by that operator on upgrade; no client chooses its identity.
 	owner := cfg.OwnerID()
-	if _, err := pgDB.Pool.Exec(ctx, `INSERT INTO users(id,username,role) VALUES($1,$2,'operator') ON CONFLICT(id) DO NOTHING`, *owner, "operator_"+owner.String()); err != nil {
+	if _, err := pgDB.Pool.Exec(ctx, `INSERT INTO users(id,username,role) VALUES($1,$2,'buyer') ON CONFLICT(id) DO NOTHING`, *owner, "operator_"+owner.String()); err != nil {
 		slog.Error("operator initialization", "error", err)
 		os.Exit(1)
 	}
@@ -244,7 +255,7 @@ func runAPIServer(
 	analyticsH := handlers.NewAnalyticsHandler(analyticsRepo, offerRepo, productRepo, messagesRepo, analyticsEngine)
 
 	router := api.NewRouter(&api.Handlers{
-		OutreachEnabled: cfg.OutreachEnabled, AllowDemoAuth: cfg.DemoAuthEnabled, APIToken: cfg.APIToken, OperatorUserID: *cfg.OwnerID(), GatewayHandler: telegram.NewGatewayClient(cfg.GatewayURL, cfg.GatewayToken).StatusHandler(),
+		Identity: identity.New(pgDB.Pool, cfg.AuthCookieSecure), OutreachEnabled: cfg.OutreachEnabled, AllowDemoAuth: cfg.DemoAuthEnabled, APIToken: cfg.APIToken, OperatorUserID: *cfg.OwnerID(), GatewayHandler: telegram.NewGatewayClient(cfg.GatewayURL, cfg.GatewayToken).StatusHandler(),
 		HealthHandler:         healthH,
 		InterestHandler:       interestH,
 		WatchSourceHandler:    watchSourceH,

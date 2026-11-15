@@ -55,7 +55,7 @@ func (r *UserRepo) GetOrCreateDefaultUser(ctx context.Context) (*domain.User, er
 
 	query := `
 		INSERT INTO users (id, username, email, full_name, role)
-		VALUES ($1, 'demo_buyer', 'buyer@perso.local', 'کاربر تستی پرسو', 'user')
+		VALUES ($1, 'demo_buyer', 'buyer@perso.local', 'کاربر تستی پرسو', 'buyer')
 		ON CONFLICT (id) DO UPDATE SET updated_at = NOW()
 		RETURNING id, username, email, full_name, role, created_at, updated_at
 	`

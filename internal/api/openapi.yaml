@@ -4,7 +4,9 @@ info:
   description: 'Backend API for Perso — Intelligent Telegram marketplace monitoring
     and product-price discovery platform. Initial focus: Iranian electronic marketplace.
 
-    '
+
+    Identity checkpoint: password accounts and server-side sessions; buyer shared-marketplace
+    access remains disabled until source assignments in step 3.'
   version: 1.0.0
 servers:
 - url: http://localhost:8080
@@ -53,6 +55,9 @@ paths:
       responses:
         '201':
           description: 'Interest created (Phase 1: buy_enabled=true, sell_enabled=false)'
+      security:
+      - sessionCookie: []
+        csrfToken: []
   /api/v1/interests/{id}:
     delete:
       summary: Remove product from interest list
@@ -67,6 +72,9 @@ paths:
       responses:
         '200':
           description: Interest deleted
+      security:
+      - sessionCookie: []
+        csrfToken: []
   /api/v1/watch-sources:
     get:
       summary: List monitored Telegram groups and channels
@@ -103,6 +111,9 @@ paths:
       responses:
         '201':
           description: 'Watch source added (Phase 1: buy_enabled=true, sell_enabled=false)'
+      security:
+      - sessionCookie: []
+        csrfToken: []
   /api/v1/watch-sources/{id}:
     delete:
       summary: Remove Telegram source from watch list
@@ -117,6 +128,9 @@ paths:
       responses:
         '200':
           description: Watch source deleted
+      security:
+      - sessionCookie: []
+        csrfToken: []
   /api/v1/products:
     get:
       summary: List canonical products
@@ -298,6 +312,9 @@ paths:
       responses:
         '200':
           description: Conversation approved and activated
+      security:
+      - sessionCookie: []
+        csrfToken: []
   /api/v1/conversations/{id}/pause:
     post:
       summary: Pause an ongoing conversation
@@ -312,6 +329,9 @@ paths:
       responses:
         '200':
           description: Conversation paused
+      security:
+      - sessionCookie: []
+        csrfToken: []
   /api/v1/conversations/{id}/close:
     post:
       summary: Close/complete a conversation
@@ -326,6 +346,9 @@ paths:
       responses:
         '200':
           description: Conversation closed
+      security:
+      - sessionCookie: []
+        csrfToken: []
   /api/v1/dashboard/summary:
     get:
       summary: Marketplace dashboard summary metrics
@@ -371,6 +394,9 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ResolveSourceResponse'
+      security:
+      - sessionCookie: []
+        csrfToken: []
   /api/v1/sources:
     get:
       summary: List configured Telegram sources
@@ -390,6 +416,9 @@ paths:
       responses:
         '201':
           description: Source registered successfully
+      security:
+      - sessionCookie: []
+        csrfToken: []
   /api/v1/sources/{id}:
     get:
       summary: Get Telegram source details
@@ -417,6 +446,9 @@ paths:
       responses:
         '200':
           description: Source deleted
+      security:
+      - sessionCookie: []
+        csrfToken: []
   /api/v1/sources/{id}/capabilities:
     get:
       summary: Get Telegram source capabilities
@@ -451,6 +483,9 @@ paths:
       responses:
         '200':
           description: Status updated
+      security:
+      - sessionCookie: []
+        csrfToken: []
   /api/v1/matches:
     get:
       summary: List matched buying opportunities for the user
@@ -506,7 +541,7 @@ paths:
                 - success
                 - data
                 properties:
-                  success: &id005
+                  success: &id010
                     type: boolean
                   data:
                     $ref: '#/components/schemas/Session'
@@ -519,6 +554,527 @@ paths:
       responses:
         '200':
           description: Connected and mock flags
+        '503':
+          description: Gateway unavailable
+  /api/v1/auth/login:
+    post:
+      operationId: login
+      summary: Authenticate with username/password and set HttpOnly session cookie
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    $ref: '#/components/schemas/LoginResult'
+        '400':
+          description: Invalid input
+        '401':
+          description: Sign in required
+        '403':
+          description: Insufficient permission or invalid CSRF/origin
+        '409':
+          description: Duplicate identity or last-super-admin conflict
+        '429':
+          description: Login rate limit
+        '503':
+          description: Storage unavailable
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                username:
+                  type: string
+                password:
+                  type: string
+                  writeOnly: true
+              required:
+              - username
+              - password
+  /api/v1/auth/logout:
+    post:
+      operationId: logout
+      summary: Revoke current session and clear cookie
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+        '400':
+          description: Invalid input
+        '401':
+          description: Sign in required
+        '403':
+          description: Insufficient permission or invalid CSRF/origin
+        '409':
+          description: Duplicate identity or last-super-admin conflict
+        '429':
+          description: Login rate limit
+        '503':
+          description: Storage unavailable
+      security:
+      - sessionCookie: []
+        csrfToken: []
+  /api/v1/me:
+    get:
+      operationId: getMe
+      summary: Get current account
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    $ref: '#/components/schemas/Account'
+        '400':
+          description: Invalid input
+        '401':
+          description: Sign in required
+        '403':
+          description: Insufficient permission or invalid CSRF/origin
+        '409':
+          description: Duplicate identity or last-super-admin conflict
+        '429':
+          description: Login rate limit
+        '503':
+          description: Storage unavailable
+    patch:
+      operationId: updateProfile
+      summary: Update own profile; role/status changes forbidden
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    $ref: '#/components/schemas/Account'
+        '400':
+          description: Invalid input
+        '401':
+          description: Sign in required
+        '403':
+          description: Insufficient permission or invalid CSRF/origin
+        '409':
+          description: Duplicate identity or last-super-admin conflict
+        '429':
+          description: Login rate limit
+        '503':
+          description: Storage unavailable
+      security:
+      - sessionCookie: []
+        csrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                username: &id001
+                  type: string
+                  pattern: ^[A-Za-z0-9][A-Za-z0-9_.-]{2,63}$
+                email: &id002
+                  type: string
+                  maxLength: 254
+                full_name: &id003
+                  type: string
+                  maxLength: 200
+              required: []
+  /api/v1/me/preferences:
+    get:
+      operationId: getPreferences
+      summary: Get own preferences
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    $ref: '#/components/schemas/Preferences'
+        '400':
+          description: Invalid input
+        '401':
+          description: Sign in required
+        '403':
+          description: Insufficient permission or invalid CSRF/origin
+        '409':
+          description: Duplicate identity or last-super-admin conflict
+        '429':
+          description: Login rate limit
+        '503':
+          description: Storage unavailable
+    patch:
+      operationId: updatePreferences
+      summary: Partially update own preferences
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    $ref: '#/components/schemas/Preferences'
+        '400':
+          description: Invalid input
+        '401':
+          description: Sign in required
+        '403':
+          description: Insufficient permission or invalid CSRF/origin
+        '409':
+          description: Duplicate identity or last-super-admin conflict
+        '429':
+          description: Login rate limit
+        '503':
+          description: Storage unavailable
+      security:
+      - sessionCookie: []
+        csrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: []
+              additionalProperties: false
+              properties: &id012
+                language:
+                  type: string
+                  enum:
+                  - fa
+                  - en
+                preferred_city:
+                  type: string
+                  maxLength: 100
+                preferred_area:
+                  type: string
+                  maxLength: 100
+                default_sort:
+                  type: string
+                  enum:
+                  - best_offer
+                  - lowest_price
+                  - highest_price
+                  - newest
+                number_format:
+                  type: string
+                  enum:
+                  - locale
+                  - latin
+  /api/v1/me/password:
+    post:
+      operationId: changePassword
+      summary: Verify current password and revoke all own sessions
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+        '400':
+          description: Invalid input
+        '401':
+          description: Sign in required
+        '403':
+          description: Insufficient permission or invalid CSRF/origin
+        '409':
+          description: Duplicate identity or last-super-admin conflict
+        '429':
+          description: Login rate limit
+        '503':
+          description: Storage unavailable
+      security:
+      - sessionCookie: []
+        csrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                current_password:
+                  type: string
+                  writeOnly: true
+                password: &id004
+                  type: string
+                  minLength: 12
+                  maxLength: 72
+                  writeOnly: true
+                  description: 12–72 UTF-8 bytes enforced by backend
+              required:
+              - current_password
+              - password
+  /api/v1/users:
+    get:
+      operationId: listUsers
+      summary: List up to 200 accounts; admins see buyers only
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Account'
+        '400':
+          description: Invalid input
+        '401':
+          description: Sign in required
+        '403':
+          description: Insufficient permission or invalid CSRF/origin
+        '409':
+          description: Duplicate identity or last-super-admin conflict
+        '429':
+          description: Login rate limit
+        '503':
+          description: Storage unavailable
+    post:
+      operationId: createUser
+      summary: Create account; only super_admin may assign elevated roles
+      responses:
+        '400':
+          description: Invalid input
+        '401':
+          description: Sign in required
+        '403':
+          description: Insufficient permission or invalid CSRF/origin
+        '409':
+          description: Duplicate identity or last-super-admin conflict
+        '429':
+          description: Login rate limit
+        '503':
+          description: Storage unavailable
+        '201':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    $ref: '#/components/schemas/Account'
+      security:
+      - sessionCookie: []
+        csrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                username: *id001
+                email: *id002
+                full_name: *id003
+                role:
+                  type: string
+                  enum: &id005
+                  - super_admin
+                  - admin
+                  - buyer
+                password: *id004
+              required:
+              - username
+              - password
+              - role
+  /api/v1/users/{id}:
+    parameters:
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    get:
+      operationId: getUser
+      summary: Get an administratively manageable account
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    $ref: '#/components/schemas/Account'
+        '400':
+          description: Invalid input
+        '401':
+          description: Sign in required
+        '403':
+          description: Insufficient permission or invalid CSRF/origin
+        '409':
+          description: Duplicate identity or last-super-admin conflict
+        '429':
+          description: Login rate limit
+        '503':
+          description: Storage unavailable
+    patch:
+      operationId: updateUser
+      summary: Edit account, preserve last active super admin, revoke sessions on
+        role/status changes
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    $ref: '#/components/schemas/Account'
+        '400':
+          description: Invalid input
+        '401':
+          description: Sign in required
+        '403':
+          description: Insufficient permission or invalid CSRF/origin
+        '409':
+          description: Duplicate identity or last-super-admin conflict
+        '429':
+          description: Login rate limit
+        '503':
+          description: Storage unavailable
+      security:
+      - sessionCookie: []
+        csrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                username: *id001
+                email: *id002
+                full_name: *id003
+                role:
+                  type: string
+                  enum: *id005
+                active:
+                  type: boolean
+              required: []
+  /api/v1/users/{id}/reset-password:
+    parameters:
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    post:
+      operationId: resetPassword
+      summary: Administrative password reset revokes all target sessions
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+        '400':
+          description: Invalid input
+        '401':
+          description: Sign in required
+        '403':
+          description: Insufficient permission or invalid CSRF/origin
+        '409':
+          description: Duplicate identity or last-super-admin conflict
+        '429':
+          description: Login rate limit
+        '503':
+          description: Storage unavailable
+      security:
+      - sessionCookie: []
+        csrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                password: *id004
+              required:
+              - password
+  /api/v1/operations/status:
+    get:
+      operationId: operationsStatus
+      summary: Aggregate gateway status for read-only monitoring; no browser account
+        privileges
+      security:
+      - operationsToken: []
+      responses:
+        '200':
+          description: Aggregate gateway state
+        '401':
+          description: Invalid machine token
         '503':
           description: Gateway unavailable
 components:
@@ -625,14 +1181,14 @@ components:
       - category
       - attributes
       properties:
-        id: &id002
+        id: &id007
           type: string
           format: uuid
-        name: &id001
+        name: &id006
           type: string
-        brand: *id001
-        model: *id001
-        category: *id001
+        brand: *id006
+        model: *id006
+        category: *id006
         attributes:
           type: object
           additionalProperties: true
@@ -651,36 +1207,36 @@ components:
       - updated_at
       - listing_status
       properties:
-        id: *id002
-        product_id: *id002
-        source_message_id: *id001
-        source_item_key: *id001
-        source_revision_at: &id003
+        id: *id007
+        product_id: *id007
+        source_message_id: *id006
+        source_item_key: *id006
+        source_revision_at: &id008
           type: string
           format: date-time
-        source_published_at: *id003
-        seller_id: &id004
+        source_published_at: *id008
+        seller_id: &id009
           type: integer
-        brand: *id001
-        manufacturer: *id001
-        model: *id001
-        condition: *id001
-        quantity: *id004
-        price_amount: *id004
+        brand: *id006
+        manufacturer: *id006
+        model: *id006
+        condition: *id006
+        quantity: *id009
+        price_amount: *id009
         price_currency:
           type: string
           enum:
           - IRR_RIAL
           - IRR_TOMAN
-        price_confidence: &id006
+        price_confidence: &id011
           type: number
-        branded: *id005
-        branded_known: *id005
-        seller_city: *id001
-        seller_area: *id001
-        listing_status: *id001
-        created_at: *id003
-        updated_at: *id003
+        branded: *id010
+        branded_known: *id010
+        seller_city: *id006
+        seller_area: *id006
+        listing_status: *id006
+        created_at: *id008
+        updated_at: *id008
         product:
           $ref: '#/components/schemas/Product'
     ScoreBreakdown:
@@ -695,14 +1251,14 @@ components:
       - variant_match
       - location_match
       properties:
-        final_score: *id006
-        explanation: *id001
-        price_competitiveness: *id006
-        product_condition: *id006
-        offer_freshness: *id006
-        extraction_confidence: *id006
-        variant_match: *id006
-        location_match: *id006
+        final_score: *id011
+        explanation: *id006
+        price_competitiveness: *id011
+        product_condition: *id011
+        offer_freshness: *id011
+        extraction_confidence: *id011
+        variant_match: *id011
+        location_match: *id011
     ScoredOffer:
       type: object
       required:
@@ -722,11 +1278,11 @@ components:
       - buy_enabled
       - sell_enabled
       properties:
-        id: *id002
-        product_id: *id002
-        user_id: *id002
-        buy_enabled: *id005
-        sell_enabled: *id005
+        id: *id007
+        product_id: *id007
+        user_id: *id007
+        buy_enabled: *id010
+        sell_enabled: *id010
         product:
           $ref: '#/components/schemas/Product'
     TelegramSource:
@@ -742,11 +1298,11 @@ components:
       - is_active
       - last_message_id
       properties:
-        id: *id002
-        owner_id: *id002
-        telegram_peer_id: *id004
-        username: *id001
-        title: *id001
+        id: *id007
+        owner_id: *id007
+        telegram_peer_id: *id009
+        username: *id006
+        title: *id006
         source_type:
           type: string
           enum:
@@ -754,13 +1310,13 @@ components:
           - supergroup
           - forum
           - broadcast_channel
-        access_type: *id001
+        access_type: *id006
         capabilities:
           $ref: '#/components/schemas/SourceCapabilities'
-        ingestion_status: *id001
-        is_active: *id005
-        last_message_id: *id004
-        last_synced_at: *id003
+        ingestion_status: *id006
+        is_active: *id010
+        last_message_id: *id009
+        last_synced_at: *id008
     Conversation:
       type: object
       required:
@@ -772,22 +1328,22 @@ components:
       - updated_at
       - version
       properties:
-        id: *id002
-        owner_id: *id002
-        offer_id: *id002
-        product_id: *id002
-        seller_id: *id004
-        state: *id001
-        consent_granted: *id005
+        id: *id007
+        owner_id: *id007
+        offer_id: *id007
+        product_id: *id007
+        seller_id: *id009
+        state: *id006
+        consent_granted: *id010
         missing_fields:
           type: array
-          items: *id001
+          items: *id006
         collected_data:
           type: object
           additionalProperties: true
-        questions_asked_count: *id004
-        updated_at: *id003
-        version: *id004
+        questions_asked_count: *id009
+        updated_at: *id008
+        version: *id009
     Session:
       type: object
       required:
@@ -796,8 +1352,12 @@ components:
       - workspace_mode
       - demo
       - outreach_enabled
+      - user
+      - csrf_token
+      - permissions
+      - marketplace_access
       properties:
-        user_id: *id002
+        user_id: *id007
         catalog_domain:
           type: string
           enum:
@@ -805,9 +1365,19 @@ components:
         workspace_mode:
           type: string
           enum:
-          - single_operator
-        demo: *id005
-        outreach_enabled: *id005
+          - multi_user_identity
+        demo: *id010
+        outreach_enabled: *id010
+        user:
+          $ref: '#/components/schemas/Account'
+        csrf_token:
+          type: string
+        permissions:
+          type: array
+          items:
+            type: string
+        marketplace_access:
+          type: boolean
     PriceStatistics:
       type: object
       required:
@@ -821,20 +1391,84 @@ components:
       - methodology
       - last_calculated
       properties:
-        product_id: *id002
-        currency: *id001
-        min_price: *id004
-        median_price: *id004
-        max_price: *id004
-        avg_price: *id004
-        sample_count: *id004
-        methodology: *id001
-        last_calculated: *id003
+        product_id: *id007
+        currency: *id006
+        min_price: *id009
+        median_price: *id009
+        max_price: *id009
+        avg_price: *id009
+        sample_count: *id009
+        methodology: *id006
+        last_calculated: *id008
+    Preferences:
+      type: object
+      required:
+      - language
+      - preferred_city
+      - preferred_area
+      - default_sort
+      - number_format
+      additionalProperties: false
+      properties: *id012
+    Account:
+      type: object
+      required:
+      - id
+      - username
+      - role
+      - active
+      - preferences
+      - created_at
+      - updated_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        username: *id001
+        email:
+          type: string
+        full_name:
+          type: string
+        role:
+          type: string
+          enum: *id005
+        active:
+          type: boolean
+        preferences:
+          $ref: '#/components/schemas/Preferences'
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    LoginResult:
+      type: object
+      required:
+      - user
+      - csrf_token
+      - permissions
+      properties:
+        user:
+          $ref: '#/components/schemas/Account'
+        csrf_token:
+          type: string
+        permissions:
+          type: array
+          items:
+            type: string
   securitySchemes:
-    OperatorToken:
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: perso_session
+    csrfToken:
+      type: apiKey
+      in: header
+      name: X-CSRF-Token
+    operationsToken:
       type: http
       scheme: bearer
-      description: Random API_TOKEN configured for the initial single-operator workspace;
-        never X-User-ID.
+      description: Aggregate operations status only. Cannot establish a user identity.
 security:
-- OperatorToken: []
+- sessionCookie: []

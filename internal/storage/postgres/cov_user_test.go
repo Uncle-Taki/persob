@@ -70,7 +70,7 @@ func TestCovUserGetOrCreateDefaultUser(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
-	if first.ID != defaultID || first.Username != "demo_buyer" || first.Email != "buyer@perso.local" || first.Role != domain.RoleUser {
+	if first.ID != defaultID || first.Username != "demo_buyer" || first.Email != "buyer@perso.local" || first.Role != domain.RoleBuyer {
 		t.Fatalf("unexpected default user: %+v", first)
 	}
 

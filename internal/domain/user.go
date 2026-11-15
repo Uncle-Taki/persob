@@ -9,8 +9,9 @@ import (
 type UserRole string
 
 const (
-	RoleUser  UserRole = "user"
-	RoleAdmin UserRole = "admin"
+	RoleBuyer      UserRole = "buyer"
+	RoleAdmin      UserRole = "admin"
+	RoleSuperAdmin UserRole = "super_admin"
 )
 
 type User struct {
@@ -19,6 +20,7 @@ type User struct {
 	Email     string    `json:"email,omitempty"`
 	FullName  string    `json:"full_name,omitempty"`
 	Role      UserRole  `json:"role"`
+	Active    bool      `json:"active"`
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
 }
