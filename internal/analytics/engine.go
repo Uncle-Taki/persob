@@ -31,6 +31,14 @@ func NewEngine(
 
 // CalculateProductStatistics calculates comprehensive statistics for a product based on active offers
 func (e *Engine) CalculateProductStatistics(ctx context.Context, productID uuid.UUID) (*domain.PriceStatistics, error) {
+	return e.calculateProductStatistics(ctx, productID, nil)
+}
+
+func (e *Engine) CalculateProductStatisticsForUser(ctx context.Context, productID, userID uuid.UUID) (*domain.PriceStatistics, error) {
+	return e.calculateProductStatistics(ctx, productID, &userID)
+}
+
+func (e *Engine) calculateProductStatistics(ctx context.Context, productID uuid.UUID, assignedUser *uuid.UUID) (*domain.PriceStatistics, error) {
 	product, err := e.productRepo.GetByID(ctx, productID)
 	if err != nil {
 		return nil, fmt.Errorf("get product: %w", err)
@@ -39,7 +47,12 @@ func (e *Engine) CalculateProductStatistics(ctx context.Context, productID uuid.
 		return nil, fmt.Errorf("product not found: %s", productID)
 	}
 
-	offers, err := e.offerRepo.GetActiveOffersByProductID(ctx, productID)
+	var offers []domain.Offer
+	if assignedUser == nil {
+		offers, err = e.offerRepo.GetActiveOffersByProductID(ctx, productID)
+	} else {
+		offers, _, err = e.offerRepo.List(ctx, postgres.OfferFilter{ProductID: &productID, ListingStatus: "active", AssignedUserID: assignedUser, Unbounded: true})
+	}
 	if err != nil {
 		return nil, fmt.Errorf("get active offers: %w", err)
 	}

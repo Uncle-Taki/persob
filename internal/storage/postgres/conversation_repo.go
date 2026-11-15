@@ -247,6 +247,63 @@ func (r *ConversationRepo) ListOwned(ctx context.Context, state string, limit, o
 	return list, count, nil
 }
 
+// ListVisibleToUser exposes only requests whose current source grant still
+// includes the buyer. Owner IDs alone are historical attribution and cannot
+// bypass a revoked assignment.
+func (r *ConversationRepo) ListVisibleToUser(ctx context.Context, userID uuid.UUID, state string, limit, offset int) ([]domain.Conversation, int64, error) {
+	if limit <= 0 {
+		limit = 20
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	stateClause := ""
+	args := []any{userID}
+	if state != "" {
+		stateClause = " AND c.state=$2"
+		args = append(args, state)
+	}
+	visible := `EXISTS (SELECT 1 FROM conversation_requests cr JOIN offers o ON o.id=cr.offer_id JOIN source_assignments sa ON sa.workspace_id=o.workspace_id AND sa.source_id=o.source_id WHERE cr.conversation_id=c.id AND cr.user_id=$1 AND sa.buyer_id=$1)`
+	var total int64
+	if err := r.db.Pool.QueryRow(ctx, "SELECT COUNT(*) FROM conversations c WHERE "+visible+stateClause, args...).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+	args = append(args, limit, offset)
+	idx := 2
+	if state != "" {
+		idx = 3
+	}
+	rows, err := r.db.Pool.Query(ctx, fmt.Sprintf("SELECT c.id FROM conversations c WHERE %s%s ORDER BY c.created_at DESC LIMIT $%d OFFSET $%d", visible, stateClause, idx, idx+1), args...)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+	var list []domain.Conversation
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, 0, err
+		}
+		conversation, err := r.GetByID(ctx, id)
+		if err != nil {
+			return nil, 0, err
+		}
+		if conversation != nil {
+			list = append(list, *conversation)
+		}
+	}
+	return list, total, rows.Err()
+}
+
+func (r *ConversationRepo) GetByIDForUser(ctx context.Context, id, userID uuid.UUID) (*domain.Conversation, error) {
+	var exists bool
+	err := r.db.Pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM conversation_requests cr JOIN offers o ON o.id=cr.offer_id JOIN source_assignments sa ON sa.workspace_id=o.workspace_id AND sa.source_id=o.source_id WHERE cr.conversation_id=$1 AND cr.user_id=$2 AND sa.buyer_id=$2)`, id, userID).Scan(&exists)
+	if err != nil || !exists {
+		return nil, err
+	}
+	return r.GetByID(ctx, id)
+}
+
 // SaveProgress atomically advances state and queues its outgoing message. The
 // expected version prevents concurrent replies/approvals from advancing twice.
 func (r *ConversationRepo) SaveProgress(ctx context.Context, c *domain.Conversation, text string) error {

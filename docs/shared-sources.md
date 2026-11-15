@@ -1,6 +1,6 @@
 # Shared sources and assignments (step 3A)
 
-This installation has one fixed workspace (`00000000-0000-4000-8000-000000000001`), one Telegram account/gateway and one normalized source per peer. `telegram_sources.owner_id` retains creator/legacy provenance; it no longer partitions ingestion between administrators. Sources and offers are visible operationally to authenticated administrators. Buyer marketplace routes remain denied until step 3B.
+This installation has one fixed workspace (`00000000-0000-4000-8000-000000000001`), one Telegram account/gateway and one normalized source per peer. `telegram_sources.owner_id` retains creator/legacy provenance; it no longer partitions ingestion between administrators. Sources and offers are visible operationally to authenticated administrators, while buyers see only currently assigned sources and their offers, matches and conversations.
 
 New listings have `workspace_id` and, when exact provenance is known, `source_id`; buyer interests do not duplicate the listing. Legacy `offers.owner_id` is retained as historical attribution. Unknown provenance is not implicitly shared with buyers. The worker resolves the exact message peer server-side; it does not trust a queued source ID. Source-level external LLM permission is checked on that exact peer independently of its creating administrator.
 
@@ -34,4 +34,4 @@ Channel grants never inherit to discussions. Register and assign a linked discus
 
 Removing a source pauses/soft-deletes it, clears and audits grants and increments their version while retaining historical listing provenance. Re-adding the peer reuses its original source ID without restoring grants. The legacy allowlist cannot reactivate a removed/paused normalized source.
 
-The client offers Assign buyers under Sources, with persisted selection, loading/error states, stale-form reload and Persian/English text. Its account picker lists at most 200 users; existing grants outside that list are retained unless explicitly removed. Buyers remain blocked even after assignment until step 3B implements consistent scoped APIs, matching jobs and marketplace views.
+The client offers Assign buyers under Sources, with persisted selection, loading/error states, stale-form reload and Persian/English text. Its account picker lists at most 200 users; existing grants outside that list are retained unless explicitly removed. Buyer access is checked on every scoped source, offer, match, statistics and conversation read; revocation takes effect immediately. Buyer source creation, ingestion control, assignment mutation and administrator approval remain forbidden.

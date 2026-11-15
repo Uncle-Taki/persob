@@ -23,6 +23,7 @@ type OfferFilter struct {
 	SellerID                               *int64
 	OwnerID                                *uuid.UUID
 	WorkspaceID                            *uuid.UUID
+	AssignedUserID                         *uuid.UUID
 	Brand, Model, Condition, ListingStatus string
 	MinPrice, MaxPrice                     *int64
 	SortBy                                 domain.SortBy
@@ -149,6 +150,9 @@ func (r *OfferRepo) List(ctx context.Context, f OfferFilter) ([]domain.Offer, in
 	if f.OwnerID != nil {
 		add("o.owner_id=$%d", *f.OwnerID)
 	}
+	if f.AssignedUserID != nil {
+		add("EXISTS (SELECT 1 FROM source_assignments sa WHERE sa.workspace_id=o.workspace_id AND sa.source_id=o.source_id AND sa.buyer_id=$%d)", *f.AssignedUserID)
+	}
 	if f.Brand != "" {
 		add("o.brand ILIKE $%d", "%"+f.Brand+"%")
 	}
@@ -211,6 +215,22 @@ func (r *OfferRepo) List(ctx context.Context, f OfferFilter) ([]domain.Offer, in
 		offers = append(offers, o)
 	}
 	return offers, total, rows.Err()
+}
+
+// GetByIDForUser applies the same live source grant used by list queries. A
+// revoked assignment cannot retain detail access through a direct ID.
+func (r *OfferRepo) GetByIDForUser(ctx context.Context, id, userID uuid.UUID) (*domain.Offer, error) {
+	var raw []byte
+	err := r.db.Pool.QueryRow(ctx, offerJSON+`WHERE o.id=$1 AND EXISTS (SELECT 1 FROM source_assignments sa WHERE sa.workspace_id=o.workspace_id AND sa.source_id=o.source_id AND sa.buyer_id=$2)`, id, userID).Scan(&raw)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var o domain.Offer
+	err = json.Unmarshal(raw, &o)
+	return &o, err
 }
 func (r *OfferRepo) GetActiveOffersByProductID(ctx context.Context, id uuid.UUID) ([]domain.Offer, error) {
 	o, _, err := r.List(ctx, OfferFilter{ProductID: &id, ListingStatus: "active", Unbounded: true})

@@ -184,7 +184,9 @@ func (s *Service) Middleware(next http.Handler) http.Handler {
 	})
 }
 
-// Until step 3 supplies source-grant predicates, buyer marketplace reads fail closed.
+// Buyer marketplace reads are admitted here and scoped by the owning
+// repository using source_assignments. This middleware does not grant data
+// access by itself.
 func (s *Service) Marketplace(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		u := Current(r.Context())
@@ -193,9 +195,9 @@ func (s *Service) Marketplace(next http.Handler) http.Handler {
 			return
 		}
 		path := strings.TrimSuffix(r.URL.Path, "/")
-		private := strings.HasPrefix(path, "/api/v1/sources") || strings.HasPrefix(path, "/api/v1/watch-sources") || strings.HasPrefix(path, "/api/v1/offers") || strings.HasPrefix(path, "/api/v1/matches") || strings.HasPrefix(path, "/api/v1/conversations") || strings.HasPrefix(path, "/api/v1/analytics") || strings.HasPrefix(path, "/api/v1/dashboard") || strings.HasPrefix(path, "/api/v1/telegram") || strings.HasSuffix(path, "/statistics")
-		if private && !admin(u.Role) {
-			httputil.RespondError(w, 403, "Source-assigned marketplace access becomes available in step 3")
+		adminOnly := strings.HasPrefix(path, "/api/v1/watch-sources") || strings.HasPrefix(path, "/api/v1/telegram")
+		if adminOnly && !admin(u.Role) {
+			httputil.RespondError(w, 403, "Administrator access required")
 			return
 		}
 		next.ServeHTTP(w, r)
@@ -297,7 +299,7 @@ func (s *Service) Login(w http.ResponseWriter, r *http.Request) {
 func (s *Service) Session(w http.ResponseWriter, r *http.Request, outreach bool) {
 	u := Current(r.Context())
 	raw, _ := r.Context().Value(sessionKey{}).(string)
-	httputil.RespondJSON(w, 200, map[string]any{"user_id": u.ID, "user": u, "csrf_token": csrf(raw), "permissions": Permissions(u), "catalog_domain": "electronics", "workspace_mode": "multi_user_identity", "marketplace_access": admin(u.Role), "demo": false, "outreach_enabled": outreach && admin(u.Role)})
+	httputil.RespondJSON(w, 200, map[string]any{"user_id": u.ID, "user": u, "csrf_token": csrf(raw), "permissions": Permissions(u), "catalog_domain": "electronics", "workspace_mode": "multi_user_identity", "marketplace_access": true, "demo": false, "outreach_enabled": outreach && admin(u.Role)})
 }
 func (s *Service) Logout(w http.ResponseWriter, r *http.Request) {
 	raw, _ := r.Context().Value(sessionKey{}).(string)

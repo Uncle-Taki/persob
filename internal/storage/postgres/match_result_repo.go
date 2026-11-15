@@ -60,11 +60,11 @@ func (r *MatchResultRepo) Create(ctx context.Context, res *domain.OfferMatchResu
 
 func (r *MatchResultRepo) ListByOfferID(ctx context.Context, offerID uuid.UUID) ([]*domain.OfferMatchResult, error) {
 	query := `
-		SELECT id, offer_id, interest_id, user_id, product_id, match_score, match_explanation,
-		       matched_attributes, unmatched_attributes, created_at
-		FROM offer_match_results
-		WHERE offer_id = $1
-		ORDER BY match_score DESC
+		SELECT m.id, m.offer_id, m.interest_id, m.user_id, m.product_id, m.match_score, m.match_explanation,
+		       m.matched_attributes, m.unmatched_attributes, m.created_at
+		FROM offer_match_results m
+		WHERE m.offer_id = $1
+		ORDER BY m.match_score DESC
 	`
 	rows, err := r.db.Pool.Query(ctx, query, offerID)
 	if err != nil {
@@ -99,11 +99,13 @@ func (r *MatchResultRepo) ListByUserID(ctx context.Context, userID uuid.UUID, li
 		limit = 50
 	}
 	query := `
-		SELECT id, offer_id, interest_id, user_id, product_id, match_score, match_explanation,
-		       matched_attributes, unmatched_attributes, created_at
-		FROM offer_match_results
-		WHERE user_id = $1
-		ORDER BY created_at DESC
+		SELECT m.id, m.offer_id, m.interest_id, m.user_id, m.product_id, m.match_score, m.match_explanation,
+		       m.matched_attributes, m.unmatched_attributes, m.created_at
+		FROM offer_match_results m
+		JOIN offers o ON o.id = m.offer_id
+		JOIN source_assignments sa ON sa.workspace_id=o.workspace_id AND sa.source_id=o.source_id AND sa.buyer_id=m.user_id
+		WHERE m.user_id = $1
+		ORDER BY m.created_at DESC
 		LIMIT $2 OFFSET $3
 	`
 	rows, err := r.db.Pool.Query(ctx, query, userID, limit, offset)

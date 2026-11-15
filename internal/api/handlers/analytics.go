@@ -37,6 +37,10 @@ func NewAnalyticsHandler(
 }
 
 func (h *AnalyticsHandler) DashboardSummary(w http.ResponseWriter, r *http.Request) {
+	if !isWorkspaceAdmin(r) {
+		httputil.RespondError(w, http.StatusForbidden, "Administrator analytics required")
+		return
+	}
 	summary, err := h.analyticsRepo.GetDashboardSummary(r.Context())
 	if err != nil {
 		httputil.RespondError(w, http.StatusInternalServerError, "Failed to get dashboard summary")
@@ -82,12 +86,18 @@ func (h *AnalyticsHandler) PriceAnalytics(w http.ResponseWriter, r *http.Request
 
 func (h *AnalyticsHandler) OfferAnalytics(w http.ResponseWriter, r *http.Request) {
 	// Returns top scored deals across the marketplace
-	offers, _, err := h.offerRepo.List(r.Context(), postgres.OfferFilter{
+	filter := postgres.OfferFilter{
 		ListingStatus: "active",
 		Limit:         50,
 		Offset:        0,
 		SortBy:        domain.SortByBestOffer,
-	})
+	}
+	if isWorkspaceAdmin(r) {
+		filter.WorkspaceID = &domain.WorkspaceID
+	} else {
+		filter.AssignedUserID = func() *uuid.UUID { id := httputil.GetUserIDFromContext(r.Context()); return &id }()
+	}
+	offers, _, err := h.offerRepo.List(r.Context(), filter)
 	if err != nil {
 		httputil.RespondError(w, http.StatusInternalServerError, "Failed to list offers")
 		return
@@ -105,6 +115,10 @@ func (h *AnalyticsHandler) OfferAnalytics(w http.ResponseWriter, r *http.Request
 }
 
 func (h *AnalyticsHandler) CompareCondition(w http.ResponseWriter, r *http.Request) {
+	if !isWorkspaceAdmin(r) {
+		httputil.RespondError(w, http.StatusForbidden, "Administrator analytics required")
+		return
+	}
 	var pID *uuid.UUID
 	if pIDStr := r.URL.Query().Get("product_id"); pIDStr != "" {
 		if id, err := uuid.Parse(pIDStr); err == nil {
@@ -125,6 +139,10 @@ func (h *AnalyticsHandler) CompareCondition(w http.ResponseWriter, r *http.Reque
 }
 
 func (h *AnalyticsHandler) CompareCity(w http.ResponseWriter, r *http.Request) {
+	if !isWorkspaceAdmin(r) {
+		httputil.RespondError(w, http.StatusForbidden, "Administrator analytics required")
+		return
+	}
 	var pID *uuid.UUID
 	if pIDStr := r.URL.Query().Get("product_id"); pIDStr != "" {
 		if id, err := uuid.Parse(pIDStr); err == nil {
@@ -145,6 +163,10 @@ func (h *AnalyticsHandler) CompareCity(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *AnalyticsHandler) CompareBrand(w http.ResponseWriter, r *http.Request) {
+	if !isWorkspaceAdmin(r) {
+		httputil.RespondError(w, http.StatusForbidden, "Administrator analytics required")
+		return
+	}
 	comparisons, err := h.analyticsRepo.GetBrandComparison(r.Context())
 	if err != nil {
 		httputil.RespondError(w, http.StatusInternalServerError, "Failed to get brand comparison")

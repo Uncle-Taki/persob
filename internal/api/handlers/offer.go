@@ -88,7 +88,7 @@ func (h *OfferHandler) List(w http.ResponseWriter, r *http.Request) {
 	if isWorkspaceAdmin(r) {
 		filter.WorkspaceID = &domain.WorkspaceID
 	} else if userID != uuid.Nil {
-		filter.OwnerID = &userID
+		filter.AssignedUserID = &userID
 	}
 	withScores := q.Get("with_scores") == "true" || filter.SortBy == domain.SortByBestOffer || filter.SortBy == ""
 	filter.Unbounded = withScores
@@ -103,7 +103,13 @@ func (h *OfferHandler) List(w http.ResponseWriter, r *http.Request) {
 		for _, o := range offers {
 			if o.ProductID != nil {
 				if _, ok := baselines[*o.ProductID]; !ok {
-					stats, err := h.analyticsEngine.CalculateProductStatistics(r.Context(), *o.ProductID)
+					var stats *domain.PriceStatistics
+					var err error
+					if isWorkspaceAdmin(r) {
+						stats, err = h.analyticsEngine.CalculateProductStatistics(r.Context(), *o.ProductID)
+					} else {
+						stats, err = h.analyticsEngine.CalculateProductStatisticsForUser(r.Context(), *o.ProductID, userID)
+					}
 					if err != nil {
 						httputil.RespondError(w, 500, "Unable to calculate offer scores")
 						return
@@ -137,13 +143,18 @@ func (h *OfferHandler) GetByID(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	offer, err := h.offerRepo.GetByID(r.Context(), id)
+	var offer *domain.Offer
+	if isWorkspaceAdmin(r) {
+		offer, err = h.offerRepo.GetByID(r.Context(), id)
+	} else {
+		offer, err = h.offerRepo.GetByIDForUser(r.Context(), id, httputil.GetUserIDFromContext(r.Context()))
+	}
 	if err != nil {
 		httputil.RespondError(w, http.StatusInternalServerError, "Failed to get offer")
 		return
 	}
 	userID := httputil.GetUserIDFromContext(r.Context())
-	if offer == nil || (isWorkspaceAdmin(r) && offer.WorkspaceID != domain.WorkspaceID) || (!isWorkspaceAdmin(r) && userID != uuid.Nil && (offer.OwnerID == nil || *offer.OwnerID != userID)) {
+	if offer == nil || (isWorkspaceAdmin(r) && offer.WorkspaceID != domain.WorkspaceID) {
 		httputil.RespondError(w, http.StatusNotFound, "Offer not found")
 		return
 	}
@@ -151,7 +162,12 @@ func (h *OfferHandler) GetByID(w http.ResponseWriter, r *http.Request) {
 	// Include score breakdown
 	var medianPrice int64 = 0
 	if offer.ProductID != nil {
-		stats, _ := h.analyticsEngine.CalculateProductStatistics(r.Context(), *offer.ProductID)
+		var stats *domain.PriceStatistics
+		if isWorkspaceAdmin(r) {
+			stats, _ = h.analyticsEngine.CalculateProductStatistics(r.Context(), *offer.ProductID)
+		} else {
+			stats, _ = h.analyticsEngine.CalculateProductStatisticsForUser(r.Context(), *offer.ProductID, userID)
+		}
 		if stats != nil {
 			medianPrice = stats.MedianPrice
 		}

@@ -33,6 +33,33 @@ func (r *TelegramSourceRepo) ListWorkspace(ctx context.Context) ([]*domain.Teleg
 	return sources, rows.Err()
 }
 
+func (r *TelegramSourceRepo) ListAssigned(ctx context.Context, buyerID uuid.UUID) ([]*domain.TelegramSource, error) {
+	rows, err := r.db.Pool.Query(ctx, `SELECT to_jsonb(s) FROM telegram_sources s JOIN source_assignments a ON a.workspace_id=s.workspace_id AND a.source_id=s.id WHERE a.workspace_id=$1 AND a.buyer_id=$2 AND s.deleted_at IS NULL AND s.is_active ORDER BY s.created_at DESC,s.id`, domain.WorkspaceID, buyerID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	sources := []*domain.TelegramSource{}
+	for rows.Next() {
+		var raw []byte
+		if err = rows.Scan(&raw); err != nil {
+			return nil, err
+		}
+		var s domain.TelegramSource
+		if err = json.Unmarshal(raw, &s); err != nil {
+			return nil, err
+		}
+		sources = append(sources, &s)
+	}
+	return sources, rows.Err()
+}
+
+func (r *TelegramSourceRepo) IsAssigned(ctx context.Context, sourceID, buyerID uuid.UUID) (bool, error) {
+	var ok bool
+	err := r.db.Pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM source_assignments a JOIN telegram_sources s ON s.workspace_id=a.workspace_id AND s.id=a.source_id WHERE a.workspace_id=$1 AND a.source_id=$2 AND a.buyer_id=$3 AND s.deleted_at IS NULL AND s.is_active)`, domain.WorkspaceID, sourceID, buyerID).Scan(&ok)
+	return ok, err
+}
+
 // SourceForPeer resolves exact provenance, never a parent's linked-discussion ID
 // or a caller-supplied source ID. Unknown/removed peers remain restricted.
 func (r *TelegramSourceRepo) SourceForPeer(ctx context.Context, peer int64) (*uuid.UUID, error) {

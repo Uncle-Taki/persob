@@ -32,6 +32,10 @@ func NewTelegramSourceHandler(
 
 // Resolve resolves a Telegram entity without persisting it
 func (h *TelegramSourceHandler) Resolve(w http.ResponseWriter, r *http.Request) {
+	if !isWorkspaceAdmin(r) {
+		httputil.RespondError(w, http.StatusForbidden, "Administrator access required")
+		return
+	}
 	var req domain.ResolveSourceRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		httputil.RespondError(w, http.StatusBadRequest, "Invalid request body")
@@ -54,6 +58,10 @@ func (h *TelegramSourceHandler) Resolve(w http.ResponseWriter, r *http.Request) 
 
 // Create always resolves the address; client-supplied entity metadata is untrusted.
 func (h *TelegramSourceHandler) Create(w http.ResponseWriter, r *http.Request) {
+	if !isWorkspaceAdmin(r) {
+		httputil.RespondError(w, http.StatusForbidden, "Administrator access required")
+		return
+	}
 	userID := httputil.GetUserIDFromContext(r.Context())
 	var req domain.CreateTelegramSourceRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -117,8 +125,7 @@ func (h *TelegramSourceHandler) List(w http.ResponseWriter, r *http.Request) {
 	if isWorkspaceAdmin(r) {
 		sources, err = h.sourceRepo.ListWorkspace(r.Context())
 	} else if identity.Current(r.Context()) != nil {
-		httputil.RespondError(w, 403, "Administrator access required")
-		return
+		sources, err = h.sourceRepo.ListAssigned(r.Context(), httputil.GetUserIDFromContext(r.Context()))
 	} else {
 		sources, err = h.sourceRepo.ListByOwner(r.Context(), httputil.GetUserIDFromContext(r.Context()))
 	}
@@ -145,7 +152,7 @@ func (h *TelegramSourceHandler) Get(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if !mayManageSource(r, source) {
+	if !h.mayReadSource(r, source) {
 		httputil.RespondError(w, 403, "Access denied")
 		return
 	}
@@ -167,7 +174,7 @@ func (h *TelegramSourceHandler) GetCapabilities(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	if !mayManageSource(r, source) {
+	if !h.mayReadSource(r, source) {
 		httputil.RespondError(w, 403, "Access denied")
 		return
 	}
@@ -250,4 +257,15 @@ func mayManageSource(r *http.Request, s *domain.TelegramSource) bool {
 		return isWorkspaceAdmin(r) && s.WorkspaceID == domain.WorkspaceID
 	}
 	return s.OwnerID == httputil.GetUserIDFromContext(r.Context())
+}
+
+func (h *TelegramSourceHandler) mayReadSource(r *http.Request, s *domain.TelegramSource) bool {
+	if isWorkspaceAdmin(r) {
+		return s.WorkspaceID == domain.WorkspaceID
+	}
+	if identity.Current(r.Context()) == nil {
+		return s.OwnerID == httputil.GetUserIDFromContext(r.Context())
+	}
+	ok, err := h.sourceRepo.IsAssigned(r.Context(), s.ID, httputil.GetUserIDFromContext(r.Context()))
+	return err == nil && ok
 }

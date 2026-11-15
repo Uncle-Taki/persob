@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/perso/perso-mind/internal/api/httputil"
 	"github.com/perso/perso-mind/internal/conversation"
+	"github.com/perso/perso-mind/internal/domain"
 	"github.com/perso/perso-mind/internal/storage/mongodb"
 	"github.com/perso/perso-mind/internal/storage/postgres"
 )
@@ -52,7 +53,14 @@ func (h *ConversationHandler) List(w http.ResponseWriter, r *http.Request) {
 		httputil.RespondError(w, 400, "Invalid offset")
 		return
 	}
-	list, total, err := h.convRepo.ListOwned(r.Context(), state, limit, offset, &userID)
+	var list []domain.Conversation
+	var total int64
+	var err error
+	if isWorkspaceAdmin(r) {
+		list, total, err = h.convRepo.List(r.Context(), state, limit, offset)
+	} else {
+		list, total, err = h.convRepo.ListVisibleToUser(r.Context(), userID, state, limit, offset)
+	}
 	if err != nil {
 		httputil.RespondError(w, http.StatusInternalServerError, "Failed to list conversations")
 		return
@@ -73,7 +81,12 @@ func (h *ConversationHandler) GetByID(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	conv, err := h.convRepo.GetByID(r.Context(), id)
+	var conv *domain.Conversation
+	if isWorkspaceAdmin(r) {
+		conv, err = h.convRepo.GetByID(r.Context(), id)
+	} else {
+		conv, err = h.convRepo.GetByIDForUser(r.Context(), id, httputil.GetUserIDFromContext(r.Context()))
+	}
 	if err != nil {
 		httputil.RespondError(w, http.StatusInternalServerError, "Failed to get conversation")
 		return
@@ -96,6 +109,10 @@ func (h *ConversationHandler) GetByID(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *ConversationHandler) Approve(w http.ResponseWriter, r *http.Request) {
+	if !isWorkspaceAdmin(r) {
+		httputil.RespondError(w, http.StatusForbidden, "Administrator approval required")
+		return
+	}
 	idStr := chi.URLParam(r, "id")
 	id, err := uuid.Parse(idStr)
 	if err != nil {
@@ -151,7 +168,13 @@ func (h *ConversationHandler) Close(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *ConversationHandler) authorized(w http.ResponseWriter, r *http.Request, id uuid.UUID) bool {
-	c, err := h.convRepo.GetByID(r.Context(), id)
+	var c *domain.Conversation
+	var err error
+	if isWorkspaceAdmin(r) {
+		c, err = h.convRepo.GetByID(r.Context(), id)
+	} else {
+		c, err = h.convRepo.GetByIDForUser(r.Context(), id, httputil.GetUserIDFromContext(r.Context()))
+	}
 	if err != nil {
 		httputil.RespondError(w, 500, "Unable to load conversation")
 		return false
