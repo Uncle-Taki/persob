@@ -1,12 +1,12 @@
 openapi: 3.0.3
 info:
   title: Perso Marketplace API
-  description: 'Backend API for Perso — Intelligent Telegram marketplace monitoring
-    and product-price discovery platform. Initial focus: Iranian electronic marketplace.
+  description: 'Backend API for Perso — Intelligent Telegram marketplace monitoring and product-price
+    discovery platform. Initial focus: Iranian electronic marketplace.
 
 
-    Identity checkpoint: password accounts and server-side sessions; buyer shared-marketplace
-    access remains disabled until source assignments in step 3.'
+    Identity checkpoint: password accounts and server-side sessions; buyer shared-marketplace access remains
+    disabled until source assignments in step 3.'
   version: 1.0.0
 servers:
 - url: http://localhost:8080
@@ -184,8 +184,7 @@ paths:
           format: uuid
       responses:
         '200':
-          description: Price statistics (min, max, average, median, range, distribution,
-            trend)
+          description: Price statistics (min, max, average, median, range, distribution, trend)
   /api/v1/offers:
     get:
       summary: List seller offers
@@ -483,6 +482,8 @@ paths:
       responses:
         '200':
           description: Status updated
+        '409':
+          description: Resolve source capabilities with the connected Telegram account before resuming
       security:
       - sessionCookie: []
         csrfToken: []
@@ -541,7 +542,7 @@ paths:
                 - success
                 - data
                 properties:
-                  success: &id010
+                  success: &id011
                     type: boolean
                   data:
                     $ref: '#/components/schemas/Session'
@@ -774,7 +775,7 @@ paths:
               type: object
               required: []
               additionalProperties: false
-              properties: &id012
+              properties: &id013
                 language:
                   type: string
                   enum:
@@ -968,8 +969,7 @@ paths:
           description: Storage unavailable
     patch:
       operationId: updateUser
-      summary: Edit account, preserve last active super admin, revoke sessions on
-        role/status changes
+      summary: Edit account, preserve last active super admin, revoke sessions on role/status changes
       responses:
         '200':
           description: Success
@@ -1066,8 +1066,7 @@ paths:
   /api/v1/operations/status:
     get:
       operationId: operationsStatus
-      summary: Aggregate gateway status for read-only monitoring; no browser account
-        privileges
+      summary: Aggregate gateway status for read-only monitoring; no browser account privileges
       security:
       - operationsToken: []
       responses:
@@ -1077,6 +1076,61 @@ paths:
           description: Invalid machine token
         '503':
           description: Gateway unavailable
+  /api/v1/sources/{id}/assignments:
+    parameters:
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    get:
+      operationId: getSourceAssignments
+      summary: Read explicit workspace source grants (admin/super_admin)
+      security:
+      - sessionCookie: []
+      responses: &id006
+        '200':
+          description: Current explicit grants; buyer marketplace remains blocked until step 3B.
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - success
+                - data
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    $ref: '#/components/schemas/SourceAssignments'
+        '400':
+          description: Invalid ID/body, duplicate/excess IDs, inactive or non-buyer account
+        '401':
+          description: Authentication required
+        '403':
+          description: Administrator role or CSRF/origin required
+        '404':
+          description: Unknown or removed source
+        '409':
+          description: Assignment version changed; reload before replacement
+        '415':
+          description: JSON required
+        '503':
+          description: Storage unavailable
+    put:
+      operationId: replaceSourceAssignments
+      summary: Atomically replace grants for active buyers (admin/super_admin)
+      security:
+      - sessionCookie: []
+        csrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SourceAssignmentsUpdate'
+      responses: *id006
 components:
   schemas:
     ResolveSourceRequest:
@@ -1181,14 +1235,14 @@ components:
       - category
       - attributes
       properties:
-        id: &id007
+        id: &id008
           type: string
           format: uuid
-        name: &id006
+        name: &id007
           type: string
-        brand: *id006
-        model: *id006
-        category: *id006
+        brand: *id007
+        model: *id007
+        category: *id007
         attributes:
           type: object
           additionalProperties: true
@@ -1206,39 +1260,52 @@ components:
       - created_at
       - updated_at
       - listing_status
+      - workspace_id
       properties:
-        id: *id007
-        product_id: *id007
-        source_message_id: *id006
-        source_item_key: *id006
-        source_revision_at: &id008
+        id: *id008
+        product_id: *id008
+        source_message_id: *id007
+        source_item_key: *id007
+        source_revision_at: &id009
           type: string
           format: date-time
-        source_published_at: *id008
-        seller_id: &id009
+        source_published_at: *id009
+        seller_id: &id010
           type: integer
-        brand: *id006
-        manufacturer: *id006
-        model: *id006
-        condition: *id006
-        quantity: *id009
-        price_amount: *id009
+        brand: *id007
+        manufacturer: *id007
+        model: *id007
+        condition: *id007
+        quantity: *id010
+        price_amount: *id010
         price_currency:
           type: string
           enum:
           - IRR_RIAL
           - IRR_TOMAN
-        price_confidence: &id011
+        price_confidence: &id012
           type: number
-        branded: *id010
-        branded_known: *id010
-        seller_city: *id006
-        seller_area: *id006
-        listing_status: *id006
-        created_at: *id008
-        updated_at: *id008
+        branded: *id011
+        branded_known: *id011
+        seller_city: *id007
+        seller_area: *id007
+        listing_status: *id007
+        created_at: *id009
+        updated_at: *id009
         product:
           $ref: '#/components/schemas/Product'
+        workspace_id:
+          type: string
+          format: uuid
+        source_id:
+          type: string
+          format: uuid
+          description: Exact normalized Telegram peer; omitted for unresolved provenance. No implicit
+            buyer grant.
+        owner_id:
+          type: string
+          format: uuid
+          description: Legacy attribution only; newly ingested shared listings have no buyer owner.
     ScoreBreakdown:
       type: object
       required:
@@ -1251,14 +1318,14 @@ components:
       - variant_match
       - location_match
       properties:
-        final_score: *id011
-        explanation: *id006
-        price_competitiveness: *id011
-        product_condition: *id011
-        offer_freshness: *id011
-        extraction_confidence: *id011
-        variant_match: *id011
-        location_match: *id011
+        final_score: *id012
+        explanation: *id007
+        price_competitiveness: *id012
+        product_condition: *id012
+        offer_freshness: *id012
+        extraction_confidence: *id012
+        variant_match: *id012
+        location_match: *id012
     ScoredOffer:
       type: object
       required:
@@ -1278,11 +1345,11 @@ components:
       - buy_enabled
       - sell_enabled
       properties:
-        id: *id007
-        product_id: *id007
-        user_id: *id007
-        buy_enabled: *id010
-        sell_enabled: *id010
+        id: *id008
+        product_id: *id008
+        user_id: *id008
+        buy_enabled: *id011
+        sell_enabled: *id011
         product:
           $ref: '#/components/schemas/Product'
     TelegramSource:
@@ -1297,12 +1364,16 @@ components:
       - ingestion_status
       - is_active
       - last_message_id
+      - workspace_id
       properties:
-        id: *id007
-        owner_id: *id007
-        telegram_peer_id: *id009
-        username: *id006
-        title: *id006
+        id: *id008
+        owner_id:
+          type: string
+          format: uuid
+          description: Creator/legacy provenance, not an access grant.
+        telegram_peer_id: *id010
+        username: *id007
+        title: *id007
         source_type:
           type: string
           enum:
@@ -1310,13 +1381,20 @@ components:
           - supergroup
           - forum
           - broadcast_channel
-        access_type: *id006
+        access_type: *id007
         capabilities:
           $ref: '#/components/schemas/SourceCapabilities'
-        ingestion_status: *id006
-        is_active: *id010
-        last_message_id: *id009
-        last_synced_at: *id008
+        ingestion_status: *id007
+        is_active: *id011
+        last_message_id: *id010
+        last_synced_at: *id009
+        workspace_id:
+          type: string
+          format: uuid
+        linked_discussion_peer_id:
+          type: integer
+          format: int64
+          description: Related peer only; buyer assignments never inherit.
     Conversation:
       type: object
       required:
@@ -1328,22 +1406,22 @@ components:
       - updated_at
       - version
       properties:
-        id: *id007
-        owner_id: *id007
-        offer_id: *id007
-        product_id: *id007
-        seller_id: *id009
-        state: *id006
-        consent_granted: *id010
+        id: *id008
+        owner_id: *id008
+        offer_id: *id008
+        product_id: *id008
+        seller_id: *id010
+        state: *id007
+        consent_granted: *id011
         missing_fields:
           type: array
-          items: *id006
+          items: *id007
         collected_data:
           type: object
           additionalProperties: true
-        questions_asked_count: *id009
-        updated_at: *id008
-        version: *id009
+        questions_asked_count: *id010
+        updated_at: *id009
+        version: *id010
     Session:
       type: object
       required:
@@ -1357,7 +1435,7 @@ components:
       - permissions
       - marketplace_access
       properties:
-        user_id: *id007
+        user_id: *id008
         catalog_domain:
           type: string
           enum:
@@ -1366,8 +1444,8 @@ components:
           type: string
           enum:
           - multi_user_identity
-        demo: *id010
-        outreach_enabled: *id010
+        demo: *id011
+        outreach_enabled: *id011
         user:
           $ref: '#/components/schemas/Account'
         csrf_token:
@@ -1391,15 +1469,15 @@ components:
       - methodology
       - last_calculated
       properties:
-        product_id: *id007
-        currency: *id006
-        min_price: *id009
-        median_price: *id009
-        max_price: *id009
-        avg_price: *id009
-        sample_count: *id009
-        methodology: *id006
-        last_calculated: *id008
+        product_id: *id008
+        currency: *id007
+        min_price: *id010
+        median_price: *id010
+        max_price: *id010
+        avg_price: *id010
+        sample_count: *id010
+        methodology: *id007
+        last_calculated: *id009
     Preferences:
       type: object
       required:
@@ -1409,7 +1487,7 @@ components:
       - default_sort
       - number_format
       additionalProperties: false
-      properties: *id012
+      properties: *id013
     Account:
       type: object
       required:
@@ -1457,6 +1535,58 @@ components:
           type: array
           items:
             type: string
+    SourceAssignments:
+      type: object
+      required:
+      - source_id
+      - workspace_id
+      - buyer_ids
+      - version
+      - linked_peer_policy
+      properties:
+        source_id:
+          type: string
+          format: uuid
+        workspace_id:
+          type: string
+          format: uuid
+        buyer_ids:
+          type: array
+          items:
+            type: string
+            format: uuid
+        version:
+          type: integer
+          format: int64
+          minimum: 0
+        linked_peer_policy:
+          type: string
+          enum:
+          - explicit
+          description: Discussion peers require separate registration and assignments; grants never inherit.
+        linked_discussion_peer_id:
+          type: integer
+          format: int64
+    SourceAssignmentsUpdate:
+      type: object
+      additionalProperties: false
+      required:
+      - buyer_ids
+      - version
+      properties:
+        buyer_ids:
+          type: array
+          maxItems: 200
+          uniqueItems: true
+          items:
+            type: string
+            format: uuid
+          description: Full replacement with active buyer IDs; [] clears every grant.
+        version:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Version returned by GET; stale versions fail with 409.
   securitySchemes:
     sessionCookie:
       type: apiKey

@@ -39,7 +39,9 @@ type SourceCapabilities struct {
 }
 
 type TelegramSource struct {
-	ExternalLLMAllowed bool `json:"external_llm_allowed"`
+	WorkspaceID        uuid.UUID  `json:"workspace_id"`
+	DeletedAt          *time.Time `json:"deleted_at,omitempty"`
+	ExternalLLMAllowed bool       `json:"external_llm_allowed"`
 
 	ID                     uuid.UUID          `json:"id"`
 	OwnerID                uuid.UUID          `json:"owner_id"`

@@ -130,6 +130,10 @@ func NewRouter(h *Handlers) http.Handler {
 				r.Post("/", h.TelegramSourceHandler.Create)
 				r.Get("/{id}", h.TelegramSourceHandler.Get)
 				r.Get("/{id}/capabilities", h.TelegramSourceHandler.GetCapabilities)
+				if h.Identity != nil {
+					r.Get("/{id}/assignments", h.Identity.SourceAssignments)
+					r.Put("/{id}/assignments", h.Identity.SourceAssignments)
+				}
 				r.Put("/{id}/status", h.TelegramSourceHandler.UpdateStatus)
 				r.Delete("/{id}", h.TelegramSourceHandler.Delete)
 			})

@@ -9,6 +9,7 @@ import (
 	"github.com/perso/perso-mind/internal/analytics"
 	"github.com/perso/perso-mind/internal/api/httputil"
 	"github.com/perso/perso-mind/internal/domain"
+	"github.com/perso/perso-mind/internal/identity"
 	"github.com/perso/perso-mind/internal/storage/postgres"
 )
 
@@ -84,7 +85,9 @@ func (h *OfferHandler) List(w http.ResponseWriter, r *http.Request) {
 		filter.ListingStatus = "active"
 	}
 	userID := httputil.GetUserIDFromContext(r.Context())
-	if userID != uuid.Nil {
+	if isWorkspaceAdmin(r) {
+		filter.WorkspaceID = &domain.WorkspaceID
+	} else if userID != uuid.Nil {
 		filter.OwnerID = &userID
 	}
 	withScores := q.Get("with_scores") == "true" || filter.SortBy == domain.SortByBestOffer || filter.SortBy == ""
@@ -140,7 +143,7 @@ func (h *OfferHandler) GetByID(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	userID := httputil.GetUserIDFromContext(r.Context())
-	if offer == nil || (userID != uuid.Nil && (offer.OwnerID == nil || *offer.OwnerID != userID)) {
+	if offer == nil || (isWorkspaceAdmin(r) && offer.WorkspaceID != domain.WorkspaceID) || (!isWorkspaceAdmin(r) && userID != uuid.Nil && (offer.OwnerID == nil || *offer.OwnerID != userID)) {
 		httputil.RespondError(w, http.StatusNotFound, "Offer not found")
 		return
 	}
@@ -183,4 +186,9 @@ func (h *OfferHandler) ListMatches(w http.ResponseWriter, r *http.Request) {
 	}
 
 	httputil.RespondJSON(w, http.StatusOK, matches)
+}
+
+func isWorkspaceAdmin(r *http.Request) bool {
+	u := identity.Current(r.Context())
+	return u != nil && u.Active && (u.Role == domain.RoleAdmin || u.Role == domain.RoleSuperAdmin)
 }

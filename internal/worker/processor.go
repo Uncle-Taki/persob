@@ -113,7 +113,7 @@ func (p *MessageProcessor) ProcessStreamMessage(ctx context.Context, msgID strin
 	allowed := false
 	if p.cfg.LLMEnabled && p.sourceRepo != nil && len([]rune(msg.MessageText)) <= 6000 {
 		var permissionErr error
-		allowed, permissionErr = p.sourceRepo.AllowExternalProcessing(ctx, msg.SourceID, *p.cfg.OwnerID())
+		allowed, permissionErr = p.sourceRepo.AllowWorkspaceExternalProcessing(ctx, msg.TelegramChatID)
 		if permissionErr != nil {
 			return permissionErr
 		}
@@ -248,6 +248,14 @@ func (p *MessageProcessor) handleSellerAdvertisement(
 	if revision.IsZero() {
 		revision = msg.ReceivedAt
 	}
+	var sourceID *uuid.UUID
+	if p.sourceRepo != nil {
+		var err error
+		sourceID, err = p.sourceRepo.SourceForPeer(ctx, msg.TelegramChatID)
+		if err != nil {
+			return fmt.Errorf("resolve shared source: %w", err)
+		}
+	}
 	for _, item := range items {
 		extProd := item.Product
 		keys = append(keys, item.Key)
@@ -283,7 +291,7 @@ func (p *MessageProcessor) handleSellerAdvertisement(
 
 		offer := &domain.Offer{
 			ID:            uuid.New(),
-			SourceItemKey: item.Key, SourceRevisionAt: revision, SourcePublishedAt: &msg.MessageDate, OwnerID: p.cfg.OwnerID(),
+			SourceItemKey: item.Key, SourceRevisionAt: revision, SourcePublishedAt: &msg.MessageDate, SourceID: sourceID,
 			ProductID:            productID,
 			SourceMessageID:      sourceMsgID,
 			SellerID:             msg.SenderID,
@@ -408,7 +416,7 @@ func (p *MessageProcessor) handleSellerAdvertisement(
 
 			// Initialize conversation if missing fields exist
 			if len(missingFields) > 0 && p.convManager != nil && msg.SenderID != 0 {
-				_, err := p.convManager.InitConversation(ctx, offer, missingFields)
+				_, err := p.convManager.InitConversation(ctx, intakeOffer(offer, p.cfg.OwnerID()), missingFields)
 				if err != nil {
 					return fmt.Errorf("initialize conversation: %w", err)
 				}
@@ -429,3 +437,11 @@ func (p *MessageProcessor) handleSellerAdvertisement(
 }
 
 func (p *MessageProcessor) SetSourceRepo(r *postgres.TelegramSourceRepo) { p.sourceRepo = r }
+
+// A shared listing has no buyer owner. The existing supervised operator intake
+// creates an explicitly attributed request; buyer fan-out belongs to step 3B/7.
+func intakeOffer(offer *domain.Offer, owner *uuid.UUID) *domain.Offer {
+	copy := *offer
+	copy.OwnerID = owner
+	return &copy
+}

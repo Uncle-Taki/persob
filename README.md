@@ -25,3 +25,5 @@ python3 scripts/sync-openapi.py
 `make lint` checks formatting without rewriting files; `make format` rewrites formatting. `make docker-down` preserves volumes. See [docs/operations.md](docs/operations.md) for acceptance tests and operations. The legacy `web/` dashboard is retained for reference and is not served by the parent deployment.
 
 Review drafts require a qualifying interest and an identifiable seller. Sending is disabled by default (`OUTREACH_ENABLED=false`). Once enabled by the operator, each draft still requires UI approval; consent is evaluated by deterministic application policy. Typed intake supports price, condition, authenticity claims, manufacturer, warranty end, city and Tehran area; product expiry is an optional separate field. Unresolved fields are retained when the configured question budget ends. The outbox distinguishes queued, sent, failed and cancelled; “sent” means Telegram API acceptance, not a read receipt.
+
+Shared workspace source ingestion, explicit administrator-managed buyer grants and migration 005 operations are documented in [shared sources](docs/shared-sources.md). Buyer marketplace access remains blocked until step 3B.

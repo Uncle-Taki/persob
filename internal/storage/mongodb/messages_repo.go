@@ -43,8 +43,8 @@ func (r *MessagesRepo) UpsertMessage(ctx context.Context, msg *domain.TelegramMe
 	// text readable by workers after an edit. Pipeline updates avoid a read/write race.
 	literal := func(v interface{}) bson.M { return bson.M{"$literal": v} }
 	insertValues := bson.M{
-		"source_id": msg.SourceID, "telegram_peer_id": msg.TelegramPeerID,
-		"received_at": msg.ReceivedAt, "message_date": msg.MessageDate,
+		"telegram_peer_id": msg.TelegramPeerID,
+		"received_at":      msg.ReceivedAt, "message_date": msg.MessageDate,
 		"chat_type": msg.ChatType, "chat_title": msg.ChatTitle, "chat_username": msg.ChatUsername,
 		"sender_id": msg.SenderID, "sender_username": msg.SenderUsername,
 		"sender_display_name": msg.SenderDisplayName, "sender_type": msg.SenderType,
@@ -56,7 +56,8 @@ func (r *MessagesRepo) UpsertMessage(ctx context.Context, msg *domain.TelegramMe
 	}
 	firstSeen["original_message_text"] = bson.M{"$ifNull": bson.A{"$original_message_text", bson.M{"$ifNull": bson.A{"$message_text", literal(msg.MessageText)}}}}
 	current := bson.M{
-		"deleted": literal(msg.Deleted), "dispatch_pending": literal(true), "dispatch_hash": literal(domain.RevisionKey(msg)), "message_text": literal(msg.MessageText), "normalized_text": literal(msg.NormalizedText),
+		"source_id": literal(msg.SourceID),
+		"deleted":   literal(msg.Deleted), "dispatch_pending": literal(true), "dispatch_hash": literal(domain.RevisionKey(msg)), "message_text": literal(msg.MessageText), "normalized_text": literal(msg.NormalizedText),
 		"processing_status": literal(msg.ProcessingStatus), "processing_version": literal(msg.ProcessingVersion),
 		"topic_id": literal(msg.TopicID), "linked_post_id": literal(msg.LinkedPostID),
 		"source_type": literal(msg.SourceType), "reply_to_message_id": literal(msg.ReplyToMessageID),
@@ -64,6 +65,19 @@ func (r *MessagesRepo) UpsertMessage(ctx context.Context, msg *domain.TelegramMe
 	}
 	if msg.EditedDate != nil {
 		current["edited_date"] = literal(msg.EditedDate)
+	}
+	// Reordered deliveries must not replace the latest raw revision with older
+	// text or resurrect an older dispatch marker. First-seen evidence is immutable.
+	revision := msg.MessageDate
+	if msg.EditedDate != nil {
+		revision = *msg.EditedDate
+	}
+	if revision.IsZero() {
+		revision = msg.ReceivedAt
+	}
+	newer := bson.M{"$lte": bson.A{bson.M{"$ifNull": bson.A{"$edited_date", "$message_date"}}, literal(revision)}}
+	for field, value := range current {
+		current[field] = bson.M{"$cond": bson.A{newer, value, "$" + field}}
 	}
 	update := mongo.Pipeline{bson.D{{Key: "$set", Value: firstSeen}}, bson.D{{Key: "$set", Value: current}}}
 

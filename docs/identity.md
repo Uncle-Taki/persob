@@ -22,9 +22,9 @@ Migration 004 preserves rows/foreign keys/history, maps legacy user/operator/unk
 
 - super_admin manages users and roles. The last active super_admin cannot be deactivated or demoted, including under concurrent requests.
 - admin can create, edit, reset and deactivate buyer accounts. It cannot manage another admin or grant elevated roles.
-- buyer manages its own profile, preferences, password and interests, and can read the shared catalog. Shared offers/sources/conversations/analytics remain denied until step 3 implements source assignments and buyer-specific scoping.
+- buyer manages its own profile, preferences, password and interests, and can read the shared catalog. Shared offers/sources/conversations/analytics remain denied until step 3B implements buyer-specific scoping.
 
-Role/status changes and password changes/resets delete affected sessions. Every request reads current account status/role, so old cookies cannot retain privilege. Administrative writes use a transaction/advisory lock, recheck the acting administrator, protect the last super admin and record an audit event without credentials. Existing single-owner marketplace behavior for administrators is preserved in this checkpoint; cross-admin/shared-source behavior belongs to step 3.
+Role/status changes and password changes/resets delete affected sessions. Every request reads current account status/role, so old cookies cannot retain privilege. Administrative writes use a transaction/advisory lock, recheck the acting administrator, protect the last super admin and record an audit event without credentials. Step 3A adds a shared workspace source registry and administrator-managed assignments; see [shared sources](shared-sources.md). Shared listing reads are administrative. Existing supervised operator intake ownership remains explicit; buyer marketplace authorization and matching fan-out belong to step 3B.
 
 Users are listed in a bounded initial administration view (up to 200); pagination is a future extension. Username/password account management is the implemented identity provider; social login/email delivery/MFA are outside step 2.
 

@@ -34,7 +34,9 @@ const (
 )
 
 type Offer struct {
-	VariantMatch *bool `json:"variant_match,omitempty"`
+	WorkspaceID  uuid.UUID  `json:"workspace_id"`
+	SourceID     *uuid.UUID `json:"source_id,omitempty"`
+	VariantMatch *bool      `json:"variant_match,omitempty"`
 
 	WarrantyKnown bool `json:"warranty_known"`
 

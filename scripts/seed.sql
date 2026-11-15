@@ -59,4 +59,4 @@ VALUES (
     true,
     'active'
 )
-ON CONFLICT (owner_id, telegram_peer_id) DO NOTHING;
+ON CONFLICT (workspace_id, telegram_peer_id) DO NOTHING;

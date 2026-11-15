@@ -132,18 +132,12 @@ func main() {
 	mongoConvRepo := mongodb.NewConversationRepo(mongoDB)
 	jobsRepo := mongodb.NewJobsRepo(mongoDB)
 
-	// Initial release has one explicit operator/workspace. Legacy unowned data
-	// is adopted by that operator on upgrade; no client chooses its identity.
+	// Retain the configured operator identity for administrative intake only.
+	// Unknown legacy listing/conversation ownership is never adopted at startup.
 	owner := cfg.OwnerID()
 	if _, err := pgDB.Pool.Exec(ctx, `INSERT INTO users(id,username,role) VALUES($1,$2,'buyer') ON CONFLICT(id) DO NOTHING`, *owner, "operator_"+owner.String()); err != nil {
 		slog.Error("operator initialization", "error", err)
 		os.Exit(1)
-	}
-	for _, table := range []string{"offers", "conversations"} {
-		if _, err := pgDB.Pool.Exec(ctx, "UPDATE "+table+" SET owner_id=$1 WHERE owner_id IS NULL", *owner); err != nil {
-			slog.Error("legacy owner migration", "error", err)
-			os.Exit(1)
-		}
 	}
 
 	// Queue Producer

@@ -21,9 +21,6 @@ func (c *Collector) syncSources(ctx context.Context) {
 				slog.Error("source sync list", "error", err)
 			} else {
 				for _, s := range sources {
-					if s.OwnerID != *c.cfg.OwnerID() {
-						continue
-					}
 					if err = c.syncSource(ctx, s); err != nil {
 						slog.Warn("source sync failed", "source_id", s.ID, "error", err)
 					}

@@ -70,9 +70,13 @@ func TestCovMatchResultCreateErrors(t *testing.T) {
 	if err := repo.Create(ctx, &domain.OfferMatchResult{OfferID: covOfferID1, UserID: covBuyerID, ProductID: covProductA, MatchScore: 0.9}); err != nil {
 		t.Fatalf("first valid match result: %v", err)
 	}
-	// Duplicate (offer_id, user_id) must violate the unique index.
-	if err := repo.Create(ctx, &domain.OfferMatchResult{OfferID: covOfferID1, UserID: covBuyerID, ProductID: covProductA, MatchScore: 0.5}); err == nil {
-		t.Fatal("expected unique constraint violation")
+	// Reprocessing a listing updates its personal match without adding a row.
+	if err := repo.Create(ctx, &domain.OfferMatchResult{OfferID: covOfferID1, UserID: covBuyerID, ProductID: covProductA, MatchScore: 0.5}); err != nil {
+		t.Fatal(err)
+	}
+	rows, err := repo.ListByOfferID(ctx, covOfferID1)
+	if err != nil || len(rows) != 1 || rows[0].MatchScore != 0.5 {
+		t.Fatalf("replay did not update one match: %+v err=%v", rows, err)
 	}
 }
 
