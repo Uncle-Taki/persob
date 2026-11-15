@@ -6,6 +6,18 @@ It monitors authorized Telegram channels and groups, extracts seller advertiseme
 
 ---
 
+## Repository Layout
+
+The parent `persop/` repository tracks `persob/` and `persof/` as Git submodules. After cloning the parent, initialize them with `git submodule update --init --recursive`.
+
+- `persob/` contains the Go backend, Docker Compose stack, and the static dashboard in `persob/web/`.
+- `persof/` contains the separate React/Vite frontend. The current Compose stack serves `persob/web/`; it does not build or serve `persof/`.
+- `audit/` contains dated audit reports, evidence, and audit-only Compose files.
+
+Run backend commands from `persob/` and frontend commands from `persof/`.
+
+---
+
 ## Key Features
 
 - **MTProto Ingestion (`gotd/td`)**: Monitors authorized Telegram channels/groups without bots or unauthorized scraping. Sessions are encrypted at rest with AES-256-GCM and file-locked against concurrent collector instances.
@@ -66,7 +78,7 @@ backend-api  <--->  Web Dashboard & REST Clients
 - (Optional for local development) Go `1.24+`
 
 ### 2. Configure Environment
-Copy `.env.example` to `.env`:
+From `persob/`, copy `.env.example` to `.env`:
 ```bash
 cp .env.example .env
 ```
@@ -74,6 +86,7 @@ cp .env.example .env
 To run in demo/offline mode without Telegram credentials, keep `TELEGRAM_MOCK_MODE=true` (or leave `TELEGRAM_APP_ID=0`).
 
 ### 3. Launch the Complete Stack
+Run this from `persob/`:
 ```bash
 docker compose up --build
 ```
@@ -126,7 +139,7 @@ This starts all 7 services:
 
 ## Local Development & CLI
 
-You can run individual process modes or everything in one process:
+Run the Go commands below from `persob/`. You can run individual process modes or everything in one process:
 
 ```bash
 # Build binary
@@ -152,6 +165,14 @@ make lint
 
 # Run database migrations
 ./bin/perso migrate
+```
+
+To run the React/Vite frontend separately, start from the repository root and enter `persof/`:
+
+```bash
+cd persof
+npm ci
+npm run dev
 ```
 
 ---

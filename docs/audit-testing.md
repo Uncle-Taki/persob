@@ -12,14 +12,15 @@ The separate API/collector account lifecycle remains unfinished. Real Telegram
 requires a non-default session encryption key. LLM enablement requires a supported
 provider and an API key; it no longer silently enables a mock enrichment provider.
 
-The standard checks are `go test ./...`, `go test -race ./...`, `go vet ./...`, and
-`go build ./cmd/perso`. The frontend checks are `npm ci`, `npm run lint` (TypeScript)
-and `npm run build`. There is no existing frontend unit-test script or ESLint gate.
+Run the standard Go checks from `persob/`: `go test ./...`, `go test -race ./...`,
+`go vet ./...`, and `go build ./cmd/perso`. Run the frontend checks from `persof/`:
+`npm ci`, `npm run lint` (TypeScript), and `npm run build`. There is no existing
+frontend unit-test script or ESLint gate.
 
 The opt-in `audit` suite includes acceptance assertions for unresolved defects;
 its failures are release evidence and must not be weakened to obtain a green run.
-Use only disposable services started from the audit Compose file in the parent
-workspace. Tests guard their endpoint identities and create/remove their own
+Use only disposable services started from the Compose file under `audit/` at the
+repository root. Tests guard their endpoint identities and create/remove their own
 PostgreSQL schemas, MongoDB databases, and Redis stream keys.
 
 ```sh
