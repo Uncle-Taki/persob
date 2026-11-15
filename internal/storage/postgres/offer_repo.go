@@ -2,8 +2,11 @@ package postgres
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -11,28 +14,24 @@ import (
 	"github.com/perso/perso-mind/internal/domain"
 )
 
-type OfferRepo struct {
-	db *DB
-}
+type OfferRepo struct{ db *DB }
 
-func NewOfferRepo(db *DB) *OfferRepo {
-	return &OfferRepo{db: db}
-}
+func NewOfferRepo(db *DB) *OfferRepo { return &OfferRepo{db: db} }
 
 type OfferFilter struct {
-	ProductID     *uuid.UUID
-	SellerID      *int64
-	Brand         string
-	Model         string
-	Condition     string
-	ListingStatus string
-	MinPrice      *int64
-	MaxPrice      *int64
-	SortBy        domain.SortBy
-	Limit         int
-	Offset        int
+	ProductID                              *uuid.UUID
+	SellerID                               *int64
+	OwnerID                                *uuid.UUID
+	Brand, Model, Condition, ListingStatus string
+	MinPrice, MaxPrice                     *int64
+	SortBy                                 domain.SortBy
+	Limit, Offset                          int
+	// Unbounded is reserved for internal aggregation/ranking, never read from a request.
+	Unbounded bool
 }
 
+// Create commits a listing and its price history together. Replayed events cannot
+// duplicate history, and older message revisions cannot overwrite newer ones.
 func (r *OfferRepo) Create(ctx context.Context, o *domain.Offer) error {
 	if o.ID == uuid.Nil {
 		o.ID = uuid.New()
@@ -46,281 +45,185 @@ func (r *OfferRepo) Create(ctx context.Context, o *domain.Offer) error {
 	if o.Condition == "" {
 		o.Condition = domain.ConditionUnknown
 	}
-
-	query := `
-		INSERT INTO offers (
-			id, product_id, source_message_id, seller_id, brand, manufacturer, model,
-			condition, quantity, price_amount, price_currency, price_raw, price_confidence,
-			branded, expiration_date, seller_city, seller_area, seller_location_text,
-			listing_status, extraction_confidence
-		) VALUES (
-			$1, $2, $3, $4, $5, $6, $7,
-			$8, $9, $10, $11, $12, $13,
-			$14, $15, $16, $17, $18,
-			$19, $20
-		)
-		ON CONFLICT (source_message_id) DO UPDATE SET
-			product_id = EXCLUDED.product_id,
-			price_amount = EXCLUDED.price_amount,
-			price_currency = EXCLUDED.price_currency,
-			price_raw = EXCLUDED.price_raw,
-			price_confidence = EXCLUDED.price_confidence,
-			condition = EXCLUDED.condition,
-			listing_status = EXCLUDED.listing_status,
-			updated_at = NOW()
-		RETURNING id, created_at, updated_at
-	`
-	err := r.db.Pool.QueryRow(ctx, query,
-		o.ID, o.ProductID, o.SourceMessageID, o.SellerID, o.Brand, o.Manufacturer, o.Model,
-		o.Condition, o.Quantity, o.PriceAmount, o.PriceCurrency, o.PriceRaw, o.PriceConfidence,
-		o.Branded, o.ExpirationDate, o.SellerCity, o.SellerArea, o.SellerLocationText,
-		o.ListingStatus, o.ExtractionConfidence,
-	).Scan(&o.ID, &o.CreatedAt, &o.UpdatedAt)
-	if err != nil {
-		return fmt.Errorf("insert offer: %w", err)
+	if o.Quantity <= 0 {
+		o.Quantity = 1
 	}
-
-	// Also record price observation if price is known
-	if o.PriceAmount != nil && *o.PriceAmount > 0 && o.ProductID != nil {
-		obs := &domain.PriceObservation{
-			ID:            uuid.New(),
-			ProductID:     *o.ProductID,
-			OfferID:       o.ID,
-			PriceAmount:   *o.PriceAmount,
-			PriceCurrency: o.PriceCurrency,
-			ObservedAt:    time.Now(),
+	if o.SourceRevisionAt.IsZero() {
+		o.SourceRevisionAt = time.Unix(0, 0).UTC()
+	}
+	if o.SourceItemKey == "" {
+		if o.ProductID != nil {
+			o.SourceItemKey = o.ProductID.String()
+		} else {
+			o.SourceItemKey = "legacy:" + strings.ToLower(o.Brand+":"+o.Model)
 		}
-		_ = r.RecordPriceObservation(ctx, obs)
 	}
-
-	return nil
+	if o.PriceAmount != nil && *o.PriceAmount < 0 {
+		return fmt.Errorf("negative offer price")
+	}
+	if o.PriceCurrency != domain.CurrencyToman && o.PriceCurrency != domain.CurrencyRial {
+		return fmt.Errorf("unsupported currency")
+	}
+	canonical, _ := json.Marshal([]any{o.ProductID, o.SellerID, o.Brand, o.Manufacturer, o.Model, o.Condition, o.Quantity, o.PriceAmount, o.PriceCurrency, o.Branded, o.BrandedKnown, o.SellerCity, o.SellerArea, o.ListingStatus, o.ExpirationDate, o.ListingExpiresAt})
+	o.ContentHash = fmt.Sprintf("%x", sha256.Sum256(canonical))
+	tx, err := r.db.Pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	if _, err = tx.Exec(ctx, "SELECT pg_advisory_xact_lock(hashtextextended($1,0))", o.SourceMessageID); err != nil {
+		return err
+	}
+	var oldHash string
+	var oldRev time.Time
+	err = tx.QueryRow(ctx, `SELECT id,content_hash,source_revision_at FROM offers WHERE source_message_id=$1 AND source_item_key=$2 FOR UPDATE`, o.SourceMessageID, o.SourceItemKey).Scan(&o.ID, &oldHash, &oldRev)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return err
+	}
+	if err == nil && oldRev.After(o.SourceRevisionAt) {
+		o.Applied = false
+		return tx.Commit(ctx)
+	}
+	query := `INSERT INTO offers(id,product_id,source_message_id,source_item_key,source_revision_at,source_published_at,content_hash,owner_id,seller_id,brand,manufacturer,model,condition,quantity,price_amount,price_currency,price_raw,price_confidence,branded,branded_known,expiration_date,listing_expires_at,warranty_until,seller_city,seller_area,seller_location_text,listing_status,extraction_confidence,warranty_known,variant_match)
+ VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30)
+ ON CONFLICT(source_message_id,source_item_key) DO UPDATE SET product_id=EXCLUDED.product_id,source_revision_at=EXCLUDED.source_revision_at,source_published_at=EXCLUDED.source_published_at,content_hash=EXCLUDED.content_hash,owner_id=EXCLUDED.owner_id,seller_id=EXCLUDED.seller_id,brand=EXCLUDED.brand,manufacturer=CASE WHEN offers.intake_updated_at IS NOT NULL AND EXCLUDED.source_revision_at<=offers.intake_updated_at THEN offers.manufacturer ELSE EXCLUDED.manufacturer END,model=EXCLUDED.model,condition=CASE WHEN offers.intake_updated_at IS NOT NULL AND EXCLUDED.source_revision_at<=offers.intake_updated_at THEN offers.condition ELSE EXCLUDED.condition END,quantity=EXCLUDED.quantity,price_amount=CASE WHEN offers.intake_updated_at IS NOT NULL AND EXCLUDED.source_revision_at<=offers.intake_updated_at THEN offers.price_amount ELSE EXCLUDED.price_amount END,price_currency=CASE WHEN offers.intake_updated_at IS NOT NULL AND EXCLUDED.source_revision_at<=offers.intake_updated_at THEN offers.price_currency ELSE EXCLUDED.price_currency END,price_raw=EXCLUDED.price_raw,price_confidence=EXCLUDED.price_confidence,branded=CASE WHEN offers.intake_updated_at IS NOT NULL AND EXCLUDED.source_revision_at<=offers.intake_updated_at THEN offers.branded ELSE EXCLUDED.branded END,branded_known=CASE WHEN offers.intake_updated_at IS NOT NULL AND EXCLUDED.source_revision_at<=offers.intake_updated_at THEN offers.branded_known ELSE EXCLUDED.branded_known END,expiration_date=CASE WHEN offers.intake_updated_at IS NOT NULL AND EXCLUDED.source_revision_at<=offers.intake_updated_at THEN offers.expiration_date ELSE EXCLUDED.expiration_date END,listing_expires_at=EXCLUDED.listing_expires_at,warranty_known=CASE WHEN offers.intake_updated_at IS NOT NULL AND EXCLUDED.source_revision_at<=offers.intake_updated_at THEN offers.warranty_known ELSE EXCLUDED.warranty_known END,warranty_until=CASE WHEN offers.intake_updated_at IS NOT NULL AND EXCLUDED.source_revision_at<=offers.intake_updated_at THEN offers.warranty_until ELSE EXCLUDED.warranty_until END,seller_city=CASE WHEN offers.intake_updated_at IS NOT NULL AND EXCLUDED.source_revision_at<=offers.intake_updated_at THEN offers.seller_city ELSE EXCLUDED.seller_city END,seller_area=CASE WHEN offers.intake_updated_at IS NOT NULL AND EXCLUDED.source_revision_at<=offers.intake_updated_at THEN offers.seller_area ELSE EXCLUDED.seller_area END,seller_location_text=EXCLUDED.seller_location_text,listing_status=EXCLUDED.listing_status,variant_match=EXCLUDED.variant_match,extraction_confidence=EXCLUDED.extraction_confidence,intake_updated_at=CASE WHEN EXCLUDED.source_revision_at<=offers.intake_updated_at THEN offers.intake_updated_at ELSE NULL END,updated_at=NOW()
+ RETURNING id,created_at,updated_at,price_amount,price_currency,seller_city,seller_area`
+	err = tx.QueryRow(ctx, query, o.ID, o.ProductID, o.SourceMessageID, o.SourceItemKey, o.SourceRevisionAt, o.SourcePublishedAt, o.ContentHash, o.OwnerID, o.SellerID, o.Brand, o.Manufacturer, o.Model, o.Condition, o.Quantity, o.PriceAmount, o.PriceCurrency, o.PriceRaw, o.PriceConfidence, o.Branded, o.BrandedKnown, o.ExpirationDate, o.ListingExpiresAt, o.WarrantyUntil, o.SellerCity, o.SellerArea, o.SellerLocationText, o.ListingStatus, o.ExtractionConfidence, o.WarrantyKnown, o.VariantMatch).Scan(&o.ID, &o.CreatedAt, &o.UpdatedAt, &o.PriceAmount, &o.PriceCurrency, &o.SellerCity, &o.SellerArea)
+	if err != nil {
+		return fmt.Errorf("upsert offer: %w", err)
+	}
+	if oldHash != o.ContentHash && o.PriceAmount != nil && *o.PriceAmount > 0 && o.ProductID != nil {
+		// A source revision is a stable event identity; direct repository calls use the content hash.
+		revision := o.ContentHash
+		if !o.SourceRevisionAt.Equal(time.Unix(0, 0)) {
+			revision = fmt.Sprintf("%d:%s", o.SourceRevisionAt.UnixNano(), o.ContentHash)
+		}
+		observed := o.SourceRevisionAt
+		if observed.Equal(time.Unix(0, 0)) {
+			observed = time.Now().UTC()
+		}
+		_, err = tx.Exec(ctx, `INSERT INTO price_observations(id,product_id,offer_id,price_amount,price_currency,observed_at,revision_hash) VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT(offer_id,revision_hash) WHERE revision_hash IS NOT NULL DO NOTHING`, uuid.New(), o.ProductID, o.ID, *o.PriceAmount, o.PriceCurrency, observed, revision)
+		if err != nil {
+			return fmt.Errorf("record observation: %w", err)
+		}
+	}
+	o.Applied = true
+	return tx.Commit(ctx)
 }
+
+const offerJSON = `SELECT to_jsonb(o)||jsonb_build_object('product',CASE WHEN p.id IS NULL THEN NULL ELSE to_jsonb(p) END) FROM offers o LEFT JOIN products p ON p.id=o.product_id `
 
 func (r *OfferRepo) GetByID(ctx context.Context, id uuid.UUID) (*domain.Offer, error) {
-	query := `
-		SELECT o.id, o.product_id, o.source_message_id, o.seller_id, o.brand, o.manufacturer, o.model,
-		       o.condition, o.quantity, o.price_amount, o.price_currency, o.price_raw, o.price_confidence,
-		       o.branded, o.expiration_date, o.seller_city, o.seller_area, o.seller_location_text,
-		       o.listing_status, o.extraction_confidence, o.created_at, o.updated_at,
-		       p.name, p.category
-		FROM offers o
-		LEFT JOIN products p ON o.product_id = p.id
-		WHERE o.id = $1
-	`
-	var o domain.Offer
-	var brand, mfr, model, pRaw, sCity, sArea, sLoc *string
-	var pName, pCat *string
-
-	err := r.db.Pool.QueryRow(ctx, query, id).Scan(
-		&o.ID, &o.ProductID, &o.SourceMessageID, &o.SellerID, &brand, &mfr, &model,
-		&o.Condition, &o.Quantity, &o.PriceAmount, &o.PriceCurrency, &pRaw, &o.PriceConfidence,
-		&o.Branded, &o.ExpirationDate, &sCity, &sArea, &sLoc,
-		&o.ListingStatus, &o.ExtractionConfidence, &o.CreatedAt, &o.UpdatedAt,
-		&pName, &pCat,
-	)
+	var raw []byte
+	err := r.db.Pool.QueryRow(ctx, offerJSON+"WHERE o.id=$1", id).Scan(&raw)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
 	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, nil
-		}
-		return nil, fmt.Errorf("get offer by id: %w", err)
+		return nil, err
 	}
-
-	if brand != nil {
-		o.Brand = *brand
-	}
-	if mfr != nil {
-		o.Manufacturer = *mfr
-	}
-	if model != nil {
-		o.Model = *model
-	}
-	if pRaw != nil {
-		o.PriceRaw = *pRaw
-	}
-	if sCity != nil {
-		o.SellerCity = *sCity
-	}
-	if sArea != nil {
-		o.SellerArea = *sArea
-	}
-	if sLoc != nil {
-		o.SellerLocationText = *sLoc
-	}
-
-	if o.ProductID != nil && pName != nil {
-		o.Product = &domain.Product{
-			ID:       *o.ProductID,
-			Name:     *pName,
-			Category: *pCat,
-		}
-	}
-
-	return &o, nil
+	var o domain.Offer
+	err = json.Unmarshal(raw, &o)
+	return &o, err
 }
+
+// Active listings must also have unexpired product/listing validity. Warranty is separate.
+const eligibleOffer = `o.listing_status='active' AND (o.expiration_date IS NULL OR o.expiration_date>NOW()) AND (o.listing_expires_at IS NULL OR o.listing_expires_at>NOW())`
+const moneySQL = `CASE WHEN o.price_currency='IRR_RIAL' THEN o.price_amount/10 ELSE o.price_amount END`
 
 func (r *OfferRepo) List(ctx context.Context, f OfferFilter) ([]domain.Offer, int64, error) {
-	whereClause := "WHERE 1=1"
+	where := "WHERE 1=1"
 	args := []any{}
-	paramIdx := 1
-
+	add := func(expr string, v any) { args = append(args, v); where += fmt.Sprintf(" AND "+expr, len(args)) }
 	if f.ProductID != nil {
-		whereClause += fmt.Sprintf(" AND o.product_id = $%d", paramIdx)
-		args = append(args, *f.ProductID)
-		paramIdx++
+		add("o.product_id=$%d", *f.ProductID)
 	}
 	if f.SellerID != nil {
-		whereClause += fmt.Sprintf(" AND o.seller_id = $%d", paramIdx)
-		args = append(args, *f.SellerID)
-		paramIdx++
+		add("o.seller_id=$%d", *f.SellerID)
+	}
+	if f.OwnerID != nil {
+		add("o.owner_id=$%d", *f.OwnerID)
 	}
 	if f.Brand != "" {
-		whereClause += fmt.Sprintf(" AND o.brand ILIKE $%d", paramIdx)
-		args = append(args, "%"+f.Brand+"%")
-		paramIdx++
+		add("o.brand ILIKE $%d", "%"+f.Brand+"%")
+	}
+	if f.Model != "" {
+		add("o.model ILIKE $%d", "%"+f.Model+"%")
 	}
 	if f.Condition != "" {
-		whereClause += fmt.Sprintf(" AND o.condition = $%d", paramIdx)
-		args = append(args, f.Condition)
-		paramIdx++
+		add("o.condition=$%d", f.Condition)
 	}
-	if f.ListingStatus != "" {
-		whereClause += fmt.Sprintf(" AND o.listing_status = $%d", paramIdx)
-		args = append(args, f.ListingStatus)
-		paramIdx++
+	if f.ListingStatus == "active" {
+		where += " AND " + eligibleOffer
+	} else if f.ListingStatus != "" {
+		add("o.listing_status=$%d", f.ListingStatus)
 	}
 	if f.MinPrice != nil {
-		whereClause += fmt.Sprintf(" AND o.price_amount >= $%d", paramIdx)
-		args = append(args, *f.MinPrice)
-		paramIdx++
+		add(moneySQL+">=$%d", *f.MinPrice)
 	}
 	if f.MaxPrice != nil {
-		whereClause += fmt.Sprintf(" AND o.price_amount <= $%d", paramIdx)
-		args = append(args, *f.MaxPrice)
-		paramIdx++
+		add(moneySQL+"<=$%d", *f.MaxPrice)
 	}
-
-	// Count total
-	countQuery := "SELECT COUNT(*) FROM offers o " + whereClause
-	var count int64
-	if err := r.db.Pool.QueryRow(ctx, countQuery, args...).Scan(&count); err != nil {
-		return nil, 0, fmt.Errorf("count offers: %w", err)
+	var total int64
+	if err := r.db.Pool.QueryRow(ctx, "SELECT COUNT(*) FROM offers o "+where, args...).Scan(&total); err != nil {
+		return nil, 0, err
 	}
-
-	// Order by
-	orderBy := "ORDER BY o.created_at DESC"
+	order := "ORDER BY COALESCE(o.source_published_at,o.created_at) DESC,o.id ASC"
 	switch f.SortBy {
 	case domain.SortByLowestPrice:
-		orderBy = "ORDER BY o.price_amount ASC NULLS LAST, o.created_at DESC"
+		order = "ORDER BY " + moneySQL + " ASC NULLS LAST,o.id ASC"
 	case domain.SortByHighestPrice:
-		orderBy = "ORDER BY o.price_amount DESC NULLS LAST, o.created_at DESC"
-	case domain.SortByNewest, domain.SortByFreshness:
-		orderBy = "ORDER BY o.created_at DESC"
+		order = "ORDER BY " + moneySQL + " DESC NULLS LAST,o.id ASC"
 	case domain.SortByConfidence:
-		orderBy = "ORDER BY o.extraction_confidence DESC, o.created_at DESC"
+		order = "ORDER BY o.extraction_confidence DESC,o.id ASC"
 	}
-
-	if f.Limit <= 0 {
-		f.Limit = 20
+	query := offerJSON + where + " " + order
+	if !f.Unbounded {
+		if f.Limit <= 0 {
+			f.Limit = 20
+		}
+		if f.Offset < 0 {
+			f.Offset = 0
+		}
+		args = append(args, f.Limit, f.Offset)
+		query += fmt.Sprintf(" LIMIT $%d OFFSET $%d", len(args)-1, len(args))
 	}
-
-	query := fmt.Sprintf(`
-		SELECT o.id, o.product_id, o.source_message_id, o.seller_id, o.brand, o.manufacturer, o.model,
-		       o.condition, o.quantity, o.price_amount, o.price_currency, o.price_raw, o.price_confidence,
-		       o.branded, o.expiration_date, o.seller_city, o.seller_area, o.seller_location_text,
-		       o.listing_status, o.extraction_confidence, o.created_at, o.updated_at,
-		       p.name, p.category
-		FROM offers o
-		LEFT JOIN products p ON o.product_id = p.id
-		%s
-		%s
-		LIMIT $%d OFFSET $%d
-	`, whereClause, orderBy, paramIdx, paramIdx+1)
-
-	args = append(args, f.Limit, f.Offset)
-
 	rows, err := r.db.Pool.Query(ctx, query, args...)
 	if err != nil {
-		return nil, 0, fmt.Errorf("list offers: %w", err)
+		return nil, 0, err
 	}
 	defer rows.Close()
-
-	var offers []domain.Offer
+	offers := []domain.Offer{}
 	for rows.Next() {
+		var raw []byte
+		if err := rows.Scan(&raw); err != nil {
+			return nil, 0, err
+		}
 		var o domain.Offer
-		var brand, mfr, model, pRaw, sCity, sArea, sLoc *string
-		var pName, pCat *string
-
-		if err := rows.Scan(
-			&o.ID, &o.ProductID, &o.SourceMessageID, &o.SellerID, &brand, &mfr, &model,
-			&o.Condition, &o.Quantity, &o.PriceAmount, &o.PriceCurrency, &pRaw, &o.PriceConfidence,
-			&o.Branded, &o.ExpirationDate, &sCity, &sArea, &sLoc,
-			&o.ListingStatus, &o.ExtractionConfidence, &o.CreatedAt, &o.UpdatedAt,
-			&pName, &pCat,
-		); err != nil {
-			return nil, 0, fmt.Errorf("scan offer: %w", err)
+		if err = json.Unmarshal(raw, &o); err != nil {
+			return nil, 0, err
 		}
-
-		if brand != nil {
-			o.Brand = *brand
-		}
-		if mfr != nil {
-			o.Manufacturer = *mfr
-		}
-		if model != nil {
-			o.Model = *model
-		}
-		if pRaw != nil {
-			o.PriceRaw = *pRaw
-		}
-		if sCity != nil {
-			o.SellerCity = *sCity
-		}
-		if sArea != nil {
-			o.SellerArea = *sArea
-		}
-		if sLoc != nil {
-			o.SellerLocationText = *sLoc
-		}
-
-		if o.ProductID != nil && pName != nil {
-			o.Product = &domain.Product{
-				ID:       *o.ProductID,
-				Name:     *pName,
-				Category: *pCat,
-			}
-		}
-
 		offers = append(offers, o)
 	}
-
-	return offers, count, nil
+	return offers, total, rows.Err()
 }
-
-func (r *OfferRepo) GetActiveOffersByProductID(ctx context.Context, productID uuid.UUID) ([]domain.Offer, error) {
-	offers, _, err := r.List(ctx, OfferFilter{
-		ProductID:     &productID,
-		ListingStatus: "active",
-		Limit:         500,
-		Offset:        0,
-		SortBy:        domain.SortByNewest,
-	})
-	return offers, err
+func (r *OfferRepo) GetActiveOffersByProductID(ctx context.Context, id uuid.UUID) ([]domain.Offer, error) {
+	o, _, err := r.List(ctx, OfferFilter{ProductID: &id, ListingStatus: "active", Unbounded: true})
+	return o, err
 }
-
-func (r *OfferRepo) RecordPriceObservation(ctx context.Context, obs *domain.PriceObservation) error {
-	if obs.ID == uuid.Nil {
-		obs.ID = uuid.New()
+func (r *OfferRepo) RecordPriceObservation(ctx context.Context, o *domain.PriceObservation) error {
+	if o.ID == uuid.Nil {
+		o.ID = uuid.New()
 	}
-	query := `
-		INSERT INTO price_observations (id, product_id, offer_id, price_amount, price_currency, observed_at)
-		VALUES ($1, $2, $3, $4, $5, $6)
-	`
-	_, err := r.db.Pool.Exec(ctx, query, obs.ID, obs.ProductID, obs.OfferID, obs.PriceAmount, obs.PriceCurrency, obs.ObservedAt)
+	_, err := r.db.Pool.Exec(ctx, `INSERT INTO price_observations(id,product_id,offer_id,price_amount,price_currency,observed_at) VALUES($1,$2,$3,$4,$5,$6)`, o.ID, o.ProductID, o.OfferID, o.PriceAmount, o.PriceCurrency, o.ObservedAt)
 	return err
 }
-
 func (r *OfferRepo) CountTotalActive(ctx context.Context) (int64, error) {
-	var count int64
-	err := r.db.Pool.QueryRow(ctx, "SELECT COUNT(*) FROM offers WHERE listing_status = 'active'").Scan(&count)
-	return count, err
+	var n int64
+	err := r.db.Pool.QueryRow(ctx, "SELECT COUNT(*) FROM offers o WHERE "+eligibleOffer).Scan(&n)
+	return n, err
+}
+func (r *OfferRepo) RetireMissing(ctx context.Context, source string, revision time.Time, keys []string) error {
+	_, err := r.db.Pool.Exec(ctx, `UPDATE offers SET listing_status='expired',source_revision_at=$2,updated_at=NOW() WHERE source_message_id=$1 AND source_revision_at<=$2 AND NOT(source_item_key=ANY($3::text[]))`, source, revision, keys)
+	return err
 }

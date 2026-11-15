@@ -39,6 +39,8 @@ type SourceCapabilities struct {
 }
 
 type TelegramSource struct {
+	ExternalLLMAllowed bool `json:"external_llm_allowed"`
+
 	ID                     uuid.UUID          `json:"id"`
 	OwnerID                uuid.UUID          `json:"owner_id"`
 	TelegramPeerID         int64              `json:"telegram_peer_id"`
@@ -81,15 +83,17 @@ type ResolveSourceResponse struct {
 }
 
 type CreateTelegramSourceRequest struct {
-	Address                string             `json:"address"`
-	ExpectedType           TelegramSourceType `json:"expected_type,omitempty"`
-	TelegramPeerID         int64              `json:"telegram_peer_id,omitempty"`
-	TelegramAccessHash     int64              `json:"telegram_access_hash,omitempty"`
-	Username               string             `json:"username,omitempty"`
-	Title                  string             `json:"title,omitempty"`
-	SourceType             TelegramSourceType `json:"source_type,omitempty"`
-	AccessType             AccessType         `json:"access_type,omitempty"`
-	LinkedDiscussionPeerID *int64             `json:"linked_discussion_peer_id,omitempty"`
+	ExternalLLMAllowed bool `json:"external_llm_allowed"`
+
+	Address                string              `json:"address"`
+	ExpectedType           TelegramSourceType  `json:"expected_type,omitempty"`
+	TelegramPeerID         int64               `json:"telegram_peer_id,omitempty"`
+	TelegramAccessHash     int64               `json:"telegram_access_hash,omitempty"`
+	Username               string              `json:"username,omitempty"`
+	Title                  string              `json:"title,omitempty"`
+	SourceType             TelegramSourceType  `json:"source_type,omitempty"`
+	AccessType             AccessType          `json:"access_type,omitempty"`
+	LinkedDiscussionPeerID *int64              `json:"linked_discussion_peer_id,omitempty"`
 	Capabilities           *SourceCapabilities `json:"capabilities,omitempty"`
 }
 

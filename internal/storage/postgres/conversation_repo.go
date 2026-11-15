@@ -1,6 +1,7 @@
 package postgres
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -24,6 +25,9 @@ func (r *ConversationRepo) Create(ctx context.Context, c *domain.Conversation) e
 	if c.ID == uuid.Nil {
 		c.ID = uuid.New()
 	}
+	if c.DraftKey == "" && c.OfferID != nil {
+		c.DraftKey = c.OfferID.String()
+	}
 	if c.State == "" {
 		c.State = domain.ConvStateNew
 	}
@@ -44,26 +48,31 @@ func (r *ConversationRepo) Create(ctx context.Context, c *domain.Conversation) e
 		INSERT INTO conversations (
 			id, offer_id, seller_id, product_id, state, consent_granted,
 			approved_by_user_id, approved_at, questions_asked_count, max_questions,
-			missing_fields, collected_data, notes
+			missing_fields, collected_data, notes,owner_id,draft_key,origin_key
 		) VALUES (
 			$1, $2, $3, $4, $5, $6,
 			$7, $8, $9, $10,
-			$11, $12, $13
+			$11, $12, $13,$14,NULLIF($15,''),NULLIF($16,'')
 		)
-		RETURNING created_at, updated_at
+		ON CONFLICT DO NOTHING
+ RETURNING id,created_at,updated_at
 	`
-	return r.db.Pool.QueryRow(ctx, query,
+	err = r.db.Pool.QueryRow(ctx, query,
 		c.ID, c.OfferID, c.SellerID, c.ProductID, c.State, c.ConsentGranted,
 		c.ApprovedByUserID, c.ApprovedAt, c.QuestionsAskedCount, c.MaxQuestions,
-		missingJSON, collectedJSON, c.Notes,
-	).Scan(&c.CreatedAt, &c.UpdatedAt)
+		missingJSON, collectedJSON, c.Notes, c.OwnerID, c.DraftKey, c.OriginKey,
+	).Scan(&c.ID, &c.CreatedAt, &c.UpdatedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return r.db.Pool.QueryRow(ctx, `SELECT id,created_at,updated_at FROM conversations WHERE draft_key=$1 OR origin_key=$2 ORDER BY created_at LIMIT 1`, c.DraftKey, c.OriginKey).Scan(&c.ID, &c.CreatedAt, &c.UpdatedAt)
+	}
+	return err
 }
 
 func (r *ConversationRepo) GetByID(ctx context.Context, id uuid.UUID) (*domain.Conversation, error) {
 	query := `
 		SELECT c.id, c.offer_id, c.seller_id, c.product_id, c.state, c.consent_granted,
 		       c.approved_by_user_id, c.approved_at, c.questions_asked_count, c.max_questions,
-		       c.missing_fields, c.collected_data, c.notes, c.created_at, c.updated_at,
+		       c.missing_fields, c.collected_data, c.notes, c.created_at, c.updated_at,c.owner_id,c.version,COALESCE(c.draft_key,''),
 		       p.name, p.category
 		FROM conversations c
 		LEFT JOIN products p ON c.product_id = p.id
@@ -76,7 +85,7 @@ func (r *ConversationRepo) GetByID(ctx context.Context, id uuid.UUID) (*domain.C
 	err := r.db.Pool.QueryRow(ctx, query, id).Scan(
 		&c.ID, &c.OfferID, &c.SellerID, &c.ProductID, &c.State, &c.ConsentGranted,
 		&c.ApprovedByUserID, &c.ApprovedAt, &c.QuestionsAskedCount, &c.MaxQuestions,
-		&missingBytes, &collectedBytes, &c.Notes, &c.CreatedAt, &c.UpdatedAt,
+		&missingBytes, &collectedBytes, &c.Notes, &c.CreatedAt, &c.UpdatedAt, &c.OwnerID, &c.Version, &c.DraftKey,
 		&pName, &pCat,
 	)
 	if err != nil {
@@ -87,7 +96,9 @@ func (r *ConversationRepo) GetByID(ctx context.Context, id uuid.UUID) (*domain.C
 	}
 
 	_ = json.Unmarshal(missingBytes, &c.MissingFields)
-	_ = json.Unmarshal(collectedBytes, &c.CollectedData)
+	decoder := json.NewDecoder(bytes.NewReader(collectedBytes))
+	decoder.UseNumber()
+	_ = decoder.Decode(&c.CollectedData)
 
 	if c.ProductID != nil && pName != nil {
 		c.Product = &domain.Product{
@@ -159,9 +170,17 @@ func (r *ConversationRepo) UpdateCollectedData(ctx context.Context, id uuid.UUID
 }
 
 func (r *ConversationRepo) List(ctx context.Context, state string, limit, offset int) ([]domain.Conversation, int64, error) {
+	return r.ListOwned(ctx, state, limit, offset, nil)
+}
+func (r *ConversationRepo) ListOwned(ctx context.Context, state string, limit, offset int, owner *uuid.UUID) ([]domain.Conversation, int64, error) {
 	where := "WHERE 1=1"
 	args := []any{}
 	pIdx := 1
+	if owner != nil {
+		where += " AND c.owner_id=$1"
+		args = append(args, *owner)
+		pIdx++
+	}
 	if state != "" {
 		where += fmt.Sprintf(" AND c.state = $%d", pIdx)
 		args = append(args, state)
@@ -181,7 +200,7 @@ func (r *ConversationRepo) List(ctx context.Context, state string, limit, offset
 	query := fmt.Sprintf(`
 		SELECT c.id, c.offer_id, c.seller_id, c.product_id, c.state, c.consent_granted,
 		       c.approved_by_user_id, c.approved_at, c.questions_asked_count, c.max_questions,
-		       c.missing_fields, c.collected_data, c.notes, c.created_at, c.updated_at,
+		       c.missing_fields, c.collected_data, c.notes, c.created_at, c.updated_at,c.owner_id,c.version,COALESCE(c.draft_key,''),
 		       p.name, p.category
 		FROM conversations c
 		LEFT JOIN products p ON c.product_id = p.id
@@ -207,13 +226,15 @@ func (r *ConversationRepo) List(ctx context.Context, state string, limit, offset
 		if err := rows.Scan(
 			&c.ID, &c.OfferID, &c.SellerID, &c.ProductID, &c.State, &c.ConsentGranted,
 			&c.ApprovedByUserID, &c.ApprovedAt, &c.QuestionsAskedCount, &c.MaxQuestions,
-			&missingBytes, &collectedBytes, &c.Notes, &c.CreatedAt, &c.UpdatedAt,
+			&missingBytes, &collectedBytes, &c.Notes, &c.CreatedAt, &c.UpdatedAt, &c.OwnerID, &c.Version, &c.DraftKey,
 			&pName, &pCat,
 		); err != nil {
 			return nil, 0, err
 		}
 		_ = json.Unmarshal(missingBytes, &c.MissingFields)
-		_ = json.Unmarshal(collectedBytes, &c.CollectedData)
+		decoder := json.NewDecoder(bytes.NewReader(collectedBytes))
+		decoder.UseNumber()
+		_ = decoder.Decode(&c.CollectedData)
 		if c.ProductID != nil && pName != nil {
 			c.Product = &domain.Product{
 				ID:       *c.ProductID,
@@ -224,4 +245,168 @@ func (r *ConversationRepo) List(ctx context.Context, state string, limit, offset
 		list = append(list, c)
 	}
 	return list, count, nil
+}
+
+// SaveProgress atomically advances state and queues its outgoing message. The
+// expected version prevents concurrent replies/approvals from advancing twice.
+func (r *ConversationRepo) SaveProgress(ctx context.Context, c *domain.Conversation, text string) error {
+	tx, err := r.db.Pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	if inbound, ok := ctx.Value(inboundKey{}).(inboundEvent); ok {
+		tag, err := tx.Exec(ctx, `INSERT INTO inbound_receipts(peer_id,message_id,conversation_id,text) VALUES($1,$2,$3,$4) ON CONFLICT DO NOTHING`, inbound.peer, inbound.message, c.ID, inbound.text)
+		if err != nil {
+			return err
+		}
+		if tag.RowsAffected() == 0 {
+			return nil
+		}
+	}
+	data, _ := json.Marshal(c.CollectedData)
+	fields, _ := json.Marshal(c.MissingFields)
+	tag, err := tx.Exec(ctx, `UPDATE conversations SET state=$1::text,consent_granted=$2,approved_by_user_id=$3,approved_at=$4,questions_asked_count=$5,missing_fields=$6,collected_data=$7,notes=$8,draft_key=CASE WHEN $1::text IN('COMPLETED','DECLINED','OPTED_OUT') THEN NULL ELSE draft_key END,version=version+1,updated_at=NOW() WHERE id=$9 AND version=$10`, c.State, c.ConsentGranted, c.ApprovedByUserID, c.ApprovedAt, c.QuestionsAskedCount, fields, data, c.Notes, c.ID, c.Version)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() != 1 {
+		return fmt.Errorf("conversation changed; reload and retry")
+	}
+	if text != "" {
+		if _, err = tx.Exec(ctx, `INSERT INTO outbound_messages(id,conversation_id,seller_id,text) VALUES($1,$2,$3,$4)`, uuid.New(), c.ID, c.SellerID, text); err != nil {
+			return err
+		}
+	}
+	if c.ConsentGranted && c.OfferID != nil {
+		priceChanged := false
+		// Only typed validated values enter these keys; raw answers remain in history.
+		if value, ok := c.CollectedData["price_amount"]; ok {
+			if number, ok := value.(json.Number); ok {
+				parsed, err := number.Int64()
+				if err != nil {
+					return err
+				}
+				value = parsed
+			}
+			currency, _ := c.CollectedData["price_currency"].(string)
+			if currency == "" {
+				currency = string(domain.CurrencyToman)
+			}
+			var previous *int64
+			var previousCurrency string
+			if err = tx.QueryRow(ctx, `SELECT price_amount,price_currency FROM offers WHERE id=$1 FOR UPDATE`, *c.OfferID).Scan(&previous, &previousCurrency); err != nil {
+				return err
+			}
+			amount, ok := value.(int64)
+			if !ok {
+				return fmt.Errorf("collected price must be an integer")
+			}
+			priceChanged = previous == nil || *previous != amount || previousCurrency != currency
+			if _, err = tx.Exec(ctx, `UPDATE offers SET price_amount=$1,price_currency=$2,intake_updated_at=NOW(),updated_at=NOW() WHERE id=$3`, value, currency, *c.OfferID); err != nil {
+				return err
+			}
+		}
+		if priceChanged {
+			if _, err = tx.Exec(ctx, `INSERT INTO price_observations(id,product_id,offer_id,price_amount,price_currency,observed_at,revision_hash) SELECT $1,product_id,id,price_amount,price_currency,NOW(),$3 FROM offers WHERE id=$2 AND product_id IS NOT NULL ON CONFLICT(offer_id,revision_hash) WHERE revision_hash IS NOT NULL DO NOTHING`, uuid.New(), *c.OfferID, "intake:"+c.ID.String()+":"+fmt.Sprint(c.Version)); err != nil {
+				return err
+			}
+		}
+		if value, ok := c.CollectedData["seller_city"]; ok {
+			if _, err = tx.Exec(ctx, `UPDATE offers SET seller_city=$1,intake_updated_at=NOW(),updated_at=NOW() WHERE id=$2`, value, *c.OfferID); err != nil {
+				return err
+			}
+		}
+		if value, ok := c.CollectedData["seller_tehran_area"]; ok {
+			if _, err = tx.Exec(ctx, `UPDATE offers SET seller_area=$1,intake_updated_at=NOW(),updated_at=NOW() WHERE id=$2`, value, *c.OfferID); err != nil {
+				return err
+			}
+		}
+	}
+	if c.ConsentGranted && c.OfferID != nil {
+		for key, column := range map[string]string{"condition": "condition", "manufacturer": "manufacturer", "branded": "branded"} {
+			if value, ok := c.CollectedData[key]; ok {
+				if _, err = tx.Exec(ctx, "UPDATE offers SET "+column+"=$1,intake_updated_at=NOW(),updated_at=NOW() WHERE id=$2", value, *c.OfferID); err != nil {
+					return err
+				}
+			}
+		}
+		if _, ok := c.CollectedData["branded"]; ok {
+			if _, err = tx.Exec(ctx, `UPDATE offers SET branded_known=true WHERE id=$1`, *c.OfferID); err != nil {
+				return err
+			}
+		}
+		for key, column := range map[string]string{"warranty_until": "warranty_until", "expiration_date": "expiration_date"} {
+			if value, ok := c.CollectedData[key]; ok {
+				var date *time.Time
+				if raw, ok := value.(string); ok && raw != "" {
+					parsed, parseErr := time.Parse("2006-01-02", raw)
+					if parseErr != nil {
+						return parseErr
+					}
+					date = &parsed
+				}
+				if _, err = tx.Exec(ctx, "UPDATE offers SET "+column+"=$1,intake_updated_at=NOW(),updated_at=NOW() WHERE id=$2", date, *c.OfferID); err != nil {
+					return err
+				}
+				if key == "warranty_until" {
+					if _, err = tx.Exec(ctx, `UPDATE offers SET warranty_known=true WHERE id=$1`, *c.OfferID); err != nil {
+						return err
+					}
+				}
+			}
+		}
+	}
+	if c.State == domain.ConvStatePaused || c.State == domain.ConvStateCompleted || c.State == domain.ConvStateDeclined || c.State == domain.ConvStateOptedOut {
+		if _, err = tx.Exec(ctx, `UPDATE outbound_messages SET status='cancelled' WHERE conversation_id=$1 AND status IN ('queued','failed')`, c.ID); err != nil {
+			return err
+		}
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return err
+	}
+	c.Version++
+	return nil
+}
+func (r *ConversationRepo) FindActiveBySeller(ctx context.Context, seller int64) (*domain.Conversation, error) {
+	var id uuid.UUID
+	err := r.db.Pool.QueryRow(ctx, `SELECT id FROM conversations WHERE seller_id=$1 AND state IN ('AWAITING_CONSENT','WAITING_FOR_REPLY','ACTIVE') ORDER BY updated_at DESC LIMIT 1`, seller).Scan(&id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return r.GetByID(ctx, id)
+}
+func (r *ConversationRepo) QueueHistory(ctx context.Context, id uuid.UUID) ([]map[string]any, error) {
+	rows, err := r.db.Pool.Query(ctx, `SELECT id::text,text,status,created_at,telegram_message_id,last_error,'assistant' AS sender FROM outbound_messages WHERE conversation_id=$1
+ UNION ALL SELECT peer_id::text||':'||message_id::text,text,'received',processed_at,message_id,NULL,'seller' FROM inbound_receipts WHERE conversation_id=$1 ORDER BY created_at,id`, id)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []map[string]any{}
+	for rows.Next() {
+		var key string
+		var text, status, sender string
+		var created time.Time
+		var mid *int64
+		var last *string
+		if err = rows.Scan(&key, &text, &status, &created, &mid, &last, &sender); err != nil {
+			return nil, err
+		}
+		out = append(out, map[string]any{"id": key, "text": text, "status": status, "sent_at": created, "sender": sender, "delivered": status == "sent", "telegram_message_id": mid, "last_error": last})
+	}
+	return out, rows.Err()
+}
+
+type inboundKey struct{}
+type inboundEvent struct {
+	peer, message int64
+	text          string
+}
+
+func WithInbound(ctx context.Context, peer, message int64, text string) context.Context {
+	return context.WithValue(ctx, inboundKey{}, inboundEvent{peer, message, text})
 }

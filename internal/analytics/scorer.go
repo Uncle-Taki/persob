@@ -3,7 +3,7 @@ package analytics
 import (
 	"fmt"
 	"math"
-	"strings"
+
 	"time"
 
 	"github.com/perso/perso-mind/internal/domain"
@@ -14,7 +14,7 @@ func ScoreOffer(offer domain.Offer, medianPrice int64) domain.ScoreBreakdown {
 	// 1. Price Competitiveness (35% weight)
 	priceScore := 0.5
 	if offer.PriceAmount != nil && *offer.PriceAmount > 0 && medianPrice > 0 {
-		ratio := float64(*offer.PriceAmount) / float64(medianPrice)
+		ratio := float64(domain.TomanAmount(*offer.PriceAmount, offer.PriceCurrency)) / float64(medianPrice)
 		if ratio <= 0.80 {
 			priceScore = 1.0 // 20%+ cheaper than median
 		} else if ratio <= 0.90 {
@@ -50,7 +50,11 @@ func ScoreOffer(offer domain.Offer, medianPrice int64) domain.ScoreBreakdown {
 	}
 
 	// 3. Freshness (15% weight)
-	ageHours := time.Since(offer.CreatedAt).Hours()
+	published := offer.CreatedAt
+	if offer.SourcePublishedAt != nil {
+		published = *offer.SourcePublishedAt
+	}
+	ageHours := time.Since(published).Hours()
 	freshScore := 0.2
 	switch {
 	case ageHours <= 6:
@@ -72,21 +76,17 @@ func ScoreOffer(offer domain.Offer, medianPrice int64) domain.ScoreBreakdown {
 	}
 
 	// 5. Variant Match (10% weight)
-	variantScore := 0.7
-	if offer.Model != "" {
-		variantScore = 0.9
+	variantScore := 0.5
+	if offer.VariantMatch != nil {
+		if *offer.VariantMatch {
+			variantScore = 1
+		} else {
+			variantScore = 0
+		}
 	}
-
-	// 6. Location Compatibility (10% weight)
+	// A user location preference has not been configured in the phase-one interest
+	// model; an arbitrary city must not receive a fabricated compatibility boost.
 	locScore := 0.5
-	locLower := strings.ToLower(offer.SellerArea + " " + offer.SellerCity + " " + offer.SellerLocationText)
-	if strings.Contains(locLower, "علاءالدین") || strings.Contains(locLower, "چارسو") || strings.Contains(locLower, "بازار") {
-		locScore = 1.0 // Central hub
-	} else if strings.Contains(locLower, "تهران") {
-		locScore = 0.85
-	} else if offer.SellerCity != "" {
-		locScore = 0.70
-	}
 
 	// Weighted sum
 	finalScore := (priceScore * 35.0) +

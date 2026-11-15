@@ -16,12 +16,12 @@ import (
 
 type TelegramSourceHandler struct {
 	sourceRepo *postgres.TelegramSourceRepo
-	resolver   *telegram.Resolver
+	resolver   telegram.SourceResolver
 }
 
 func NewTelegramSourceHandler(
 	sourceRepo *postgres.TelegramSourceRepo,
-	resolver *telegram.Resolver,
+	resolver telegram.SourceResolver,
 ) *TelegramSourceHandler {
 	return &TelegramSourceHandler{
 		sourceRepo: sourceRepo,
@@ -77,7 +77,7 @@ func (h *TelegramSourceHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	source := &domain.TelegramSource{
-		ID: uuid.New(), OwnerID: userID,
+		ID: uuid.New(), OwnerID: userID, ExternalLLMAllowed: req.ExternalLLMAllowed,
 		TelegramPeerID: resolved.PeerID, TelegramAccessHash: resolved.AccessHash,
 		Username: resolved.Username, Title: resolved.Title,
 		SourceType: resolved.DetectedType, DetectedType: resolved.DetectedType,
@@ -115,7 +115,7 @@ func (h *TelegramSourceHandler) List(w http.ResponseWriter, r *http.Request) {
 
 	sources, err := h.sourceRepo.ListByOwner(r.Context(), userID)
 	if err != nil {
-		httputil.RespondError(w, http.StatusInternalServerError, "Failed to list telegram sources: "+err.Error())
+		httputil.RespondError(w, http.StatusInternalServerError, "Failed to list telegram sources")
 		return
 	}
 
@@ -206,7 +206,7 @@ func (h *TelegramSourceHandler) UpdateStatus(w http.ResponseWriter, r *http.Requ
 	}
 
 	if err := h.sourceRepo.UpdateStatus(r.Context(), id, req.IngestionStatus, req.IsActive); err != nil {
-		httputil.RespondError(w, http.StatusInternalServerError, "Failed to update source status: "+err.Error())
+		httputil.RespondError(w, http.StatusInternalServerError, "Failed to update source status")
 		return
 	}
 

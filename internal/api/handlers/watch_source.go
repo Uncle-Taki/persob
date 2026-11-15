@@ -26,7 +26,7 @@ func (h *WatchSourceHandler) List(w http.ResponseWriter, r *http.Request) {
 
 	list, err := h.watchSourceRepo.ListByUserID(r.Context(), userID)
 	if err != nil {
-		httputil.RespondError(w, http.StatusInternalServerError, "Failed to list watch sources: "+err.Error())
+		httputil.RespondError(w, http.StatusInternalServerError, "Failed to list watch sources")
 		return
 	}
 
@@ -64,7 +64,7 @@ func (h *WatchSourceHandler) Create(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.watchSourceRepo.Create(r.Context(), source); err != nil {
-		httputil.RespondError(w, http.StatusInternalServerError, "Failed to create watch source: "+err.Error())
+		httputil.RespondError(w, http.StatusInternalServerError, "Failed to create watch source")
 		return
 	}
 

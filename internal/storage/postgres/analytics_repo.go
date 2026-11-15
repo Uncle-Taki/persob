@@ -95,7 +95,7 @@ func (r *AnalyticsRepo) GetDashboardSummary(ctx context.Context) (*domain.Dashbo
 		return nil, fmt.Errorf("count active offers: %w", err)
 	}
 
-	err = r.db.Pool.QueryRow(ctx, "SELECT COUNT(*) FROM watch_sources WHERE monitoring_status = 'active'").Scan(&summary.TotalWatchSources)
+	err = r.db.Pool.QueryRow(ctx, "SELECT COUNT(*) FROM telegram_sources WHERE is_active AND ingestion_status = 'active'").Scan(&summary.TotalWatchSources)
 	if err != nil {
 		return nil, fmt.Errorf("count watch sources: %w", err)
 	}
@@ -111,12 +111,12 @@ func (r *AnalyticsRepo) GetDashboardSummary(ctx context.Context) (*domain.Dashbo
 func (r *AnalyticsRepo) GetConditionComparison(ctx context.Context, productID *uuid.UUID) ([]domain.ConditionComparison, error) {
 	query := `
 		SELECT condition, 
-		       ROUND(AVG(price_amount))::bigint AS avg_price,
-		       MIN(price_amount) AS min_price,
-		       MAX(price_amount) AS max_price,
+		       ROUND(AVG(CASE WHEN price_currency='IRR_RIAL' THEN price_amount/10 ELSE price_amount END))::bigint AS avg_price,
+		       MIN(CASE WHEN price_currency='IRR_RIAL' THEN price_amount/10 ELSE price_amount END) AS min_price,
+		       MAX(CASE WHEN price_currency='IRR_RIAL' THEN price_amount/10 ELSE price_amount END) AS max_price,
 		       COUNT(*)::int AS count
 		FROM offers
-		WHERE listing_status = 'active' AND price_amount IS NOT NULL AND ($1::uuid IS NULL OR product_id = $1)
+		WHERE listing_status = 'active' AND (expiration_date IS NULL OR expiration_date>NOW()) AND (listing_expires_at IS NULL OR listing_expires_at>NOW()) AND price_amount > 0 AND ($1::uuid IS NULL OR product_id = $1)
 		GROUP BY condition
 		ORDER BY avg_price ASC
 	`
@@ -140,12 +140,12 @@ func (r *AnalyticsRepo) GetConditionComparison(ctx context.Context, productID *u
 func (r *AnalyticsRepo) GetCityComparison(ctx context.Context, productID *uuid.UUID) ([]domain.CityComparison, error) {
 	query := `
 		SELECT COALESCE(NULLIF(seller_city, ''), 'نامشخص') AS city,
-		       ROUND(AVG(price_amount))::bigint AS avg_price,
-		       MIN(price_amount) AS min_price,
-		       MAX(price_amount) AS max_price,
+		       ROUND(AVG(CASE WHEN price_currency='IRR_RIAL' THEN price_amount/10 ELSE price_amount END))::bigint AS avg_price,
+		       MIN(CASE WHEN price_currency='IRR_RIAL' THEN price_amount/10 ELSE price_amount END) AS min_price,
+		       MAX(CASE WHEN price_currency='IRR_RIAL' THEN price_amount/10 ELSE price_amount END) AS max_price,
 		       COUNT(*)::int AS count
 		FROM offers
-		WHERE listing_status = 'active' AND price_amount IS NOT NULL AND ($1::uuid IS NULL OR product_id = $1)
+		WHERE listing_status = 'active' AND (expiration_date IS NULL OR expiration_date>NOW()) AND (listing_expires_at IS NULL OR listing_expires_at>NOW()) AND price_amount > 0 AND ($1::uuid IS NULL OR product_id = $1)
 		GROUP BY COALESCE(NULLIF(seller_city, ''), 'نامشخص')
 		ORDER BY count DESC, avg_price ASC
 	`
@@ -169,12 +169,12 @@ func (r *AnalyticsRepo) GetCityComparison(ctx context.Context, productID *uuid.U
 func (r *AnalyticsRepo) GetBrandComparison(ctx context.Context) ([]domain.BrandComparison, error) {
 	query := `
 		SELECT COALESCE(NULLIF(brand, ''), 'نامشخص') AS brand,
-		       ROUND(AVG(price_amount))::bigint AS avg_price,
-		       MIN(price_amount) AS min_price,
-		       MAX(price_amount) AS max_price,
+		       ROUND(AVG(CASE WHEN price_currency='IRR_RIAL' THEN price_amount/10 ELSE price_amount END))::bigint AS avg_price,
+		       MIN(CASE WHEN price_currency='IRR_RIAL' THEN price_amount/10 ELSE price_amount END) AS min_price,
+		       MAX(CASE WHEN price_currency='IRR_RIAL' THEN price_amount/10 ELSE price_amount END) AS max_price,
 		       COUNT(*)::int AS count
 		FROM offers
-		WHERE listing_status = 'active' AND price_amount IS NOT NULL
+		WHERE listing_status = 'active' AND (expiration_date IS NULL OR expiration_date>NOW()) AND (listing_expires_at IS NULL OR listing_expires_at>NOW()) AND price_amount > 0
 		GROUP BY COALESCE(NULLIF(brand, ''), 'نامشخص')
 		ORDER BY count DESC, avg_price ASC
 	`

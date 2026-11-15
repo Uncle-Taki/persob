@@ -2,19 +2,20 @@ package postgres
 
 import (
 	"context"
-	_ "embed"
+	"crypto/sha256"
+	"embed"
 	"fmt"
+	"io/fs"
 	"log/slog"
+	"sort"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-//go:embed migrations/001_initial_schema.sql
-var initialSchemaSQL string
-
-//go:embed migrations/002_telegram_sources_and_marketplace.sql
-var enhancementSchemaSQL string
+//go:embed migrations/*.sql
+var migrationFiles embed.FS
 
 type DB struct {
 	Pool *pgxpool.Pool
@@ -69,12 +70,37 @@ func (db *DB) Migrate(ctx context.Context) error {
 		return fmt.Errorf("acquire migration lock: %w", err)
 	}
 
-	if _, err := tx.Exec(ctx, initialSchemaSQL); err != nil {
-		return fmt.Errorf("execute initial schema migration: %w", err)
+	if _, err := tx.Exec(ctx, `CREATE TABLE IF NOT EXISTS schema_migrations (name TEXT PRIMARY KEY, checksum TEXT NOT NULL, applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`); err != nil {
+		return err
 	}
-
-	if _, err := tx.Exec(ctx, enhancementSchemaSQL); err != nil {
-		return fmt.Errorf("execute enhancement schema migration: %w", err)
+	names, err := fs.Glob(migrationFiles, "migrations/*.sql")
+	if err != nil {
+		return err
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		body, err := migrationFiles.ReadFile(name)
+		if err != nil {
+			return err
+		}
+		sum := fmt.Sprintf("%x", sha256.Sum256(body))
+		var previous string
+		err = tx.QueryRow(ctx, "SELECT checksum FROM schema_migrations WHERE name=$1", name).Scan(&previous)
+		if err == nil {
+			if previous != sum {
+				return fmt.Errorf("migration checksum changed: %s", name)
+			}
+			continue
+		}
+		if err != pgx.ErrNoRows {
+			return err
+		}
+		if _, err = tx.Exec(ctx, string(body)); err != nil {
+			return fmt.Errorf("migration %s: %w", name, err)
+		}
+		if _, err = tx.Exec(ctx, "INSERT INTO schema_migrations(name,checksum) VALUES($1,$2)", name, sum); err != nil {
+			return err
+		}
 	}
 
 	if err := tx.Commit(ctx); err != nil {

@@ -39,7 +39,7 @@ func NewAnalyticsHandler(
 func (h *AnalyticsHandler) DashboardSummary(w http.ResponseWriter, r *http.Request) {
 	summary, err := h.analyticsRepo.GetDashboardSummary(r.Context())
 	if err != nil {
-		httputil.RespondError(w, http.StatusInternalServerError, "Failed to get dashboard summary: "+err.Error())
+		httputil.RespondError(w, http.StatusInternalServerError, "Failed to get dashboard summary")
 		return
 	}
 
@@ -66,7 +66,7 @@ func (h *AnalyticsHandler) PriceAnalytics(w http.ResponseWriter, r *http.Request
 
 	stats, err := h.analyticsEngine.CalculateProductStatistics(r.Context(), productID)
 	if err != nil {
-		httputil.RespondError(w, http.StatusInternalServerError, "Failed to calculate product statistics: "+err.Error())
+		httputil.RespondError(w, http.StatusInternalServerError, "Failed to calculate product statistics")
 		return
 	}
 
@@ -89,7 +89,7 @@ func (h *AnalyticsHandler) OfferAnalytics(w http.ResponseWriter, r *http.Request
 		SortBy:        domain.SortByBestOffer,
 	})
 	if err != nil {
-		httputil.RespondError(w, http.StatusInternalServerError, "Failed to list offers: "+err.Error())
+		httputil.RespondError(w, http.StatusInternalServerError, "Failed to list offers")
 		return
 	}
 
@@ -114,7 +114,7 @@ func (h *AnalyticsHandler) CompareCondition(w http.ResponseWriter, r *http.Reque
 
 	comparisons, err := h.analyticsRepo.GetConditionComparison(r.Context(), pID)
 	if err != nil {
-		httputil.RespondError(w, http.StatusInternalServerError, "Failed to get condition comparison: "+err.Error())
+		httputil.RespondError(w, http.StatusInternalServerError, "Failed to get condition comparison")
 		return
 	}
 
@@ -134,7 +134,7 @@ func (h *AnalyticsHandler) CompareCity(w http.ResponseWriter, r *http.Request) {
 
 	comparisons, err := h.analyticsRepo.GetCityComparison(r.Context(), pID)
 	if err != nil {
-		httputil.RespondError(w, http.StatusInternalServerError, "Failed to get city comparison: "+err.Error())
+		httputil.RespondError(w, http.StatusInternalServerError, "Failed to get city comparison")
 		return
 	}
 
@@ -147,7 +147,7 @@ func (h *AnalyticsHandler) CompareCity(w http.ResponseWriter, r *http.Request) {
 func (h *AnalyticsHandler) CompareBrand(w http.ResponseWriter, r *http.Request) {
 	comparisons, err := h.analyticsRepo.GetBrandComparison(r.Context())
 	if err != nil {
-		httputil.RespondError(w, http.StatusInternalServerError, "Failed to get brand comparison: "+err.Error())
+		httputil.RespondError(w, http.StatusInternalServerError, "Failed to get brand comparison")
 		return
 	}
 

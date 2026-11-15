@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"reflect"
 
 	"github.com/google/uuid"
 )
@@ -32,7 +33,7 @@ func RespondJSON(w http.ResponseWriter, statusCode int, data any) {
 	w.WriteHeader(statusCode)
 	_ = json.NewEncoder(w).Encode(APIResponse{
 		Success: true,
-		Data:    data,
+		Data:    normalizeList(data),
 	})
 }
 
@@ -41,7 +42,7 @@ func RespondWithMeta(w http.ResponseWriter, statusCode int, data any, meta any) 
 	w.WriteHeader(statusCode)
 	_ = json.NewEncoder(w).Encode(APIResponse{
 		Success: true,
-		Data:    data,
+		Data:    normalizeList(data),
 		Meta:    meta,
 	})
 }
@@ -59,5 +60,16 @@ func GetUserIDFromContext(ctx context.Context) uuid.UUID {
 	if val, ok := ctx.Value(UserContextKey).(uuid.UUID); ok {
 		return val
 	}
-	return uuid.MustParse("11111111-1111-1111-1111-111111111111")
+	return uuid.Nil
+}
+
+func normalizeList(value any) any {
+	if value == nil {
+		return value
+	}
+	v := reflect.ValueOf(value)
+	if v.Kind() == reflect.Slice && v.IsNil() {
+		return []any{}
+	}
+	return value
 }

@@ -40,9 +40,21 @@ func (h *ConversationHandler) List(w http.ResponseWriter, r *http.Request) {
 		limit = 20
 	}
 
-	list, total, err := h.convRepo.List(r.Context(), state, limit, offset)
+	userID := httputil.GetUserIDFromContext(r.Context())
+	if userID == uuid.Nil {
+		httputil.RespondError(w, 401, "Authentication required")
+		return
+	}
+	if limit > 100 {
+		limit = 100
+	}
+	if offset < 0 {
+		httputil.RespondError(w, 400, "Invalid offset")
+		return
+	}
+	list, total, err := h.convRepo.ListOwned(r.Context(), state, limit, offset, &userID)
 	if err != nil {
-		httputil.RespondError(w, http.StatusInternalServerError, "Failed to list conversations: "+err.Error())
+		httputil.RespondError(w, http.StatusInternalServerError, "Failed to list conversations")
 		return
 	}
 
@@ -63,16 +75,16 @@ func (h *ConversationHandler) GetByID(w http.ResponseWriter, r *http.Request) {
 
 	conv, err := h.convRepo.GetByID(r.Context(), id)
 	if err != nil {
-		httputil.RespondError(w, http.StatusInternalServerError, "Failed to get conversation: "+err.Error())
+		httputil.RespondError(w, http.StatusInternalServerError, "Failed to get conversation")
 		return
 	}
-	if conv == nil {
+	if conv == nil || conv.OwnerID == nil || *conv.OwnerID != httputil.GetUserIDFromContext(r.Context()) {
 		httputil.RespondError(w, http.StatusNotFound, "Conversation not found")
 		return
 	}
 
 	// Fetch message history from MongoDB
-	messages, err := h.mongoConvRepo.GetMessagesByConversationID(r.Context(), id.String())
+	messages, err := h.convRepo.QueueHistory(r.Context(), id)
 	if err != nil {
 		messages = nil
 	}
@@ -93,7 +105,7 @@ func (h *ConversationHandler) Approve(w http.ResponseWriter, r *http.Request) {
 
 	userID := httputil.GetUserIDFromContext(r.Context())
 	if err := h.convManager.Approve(r.Context(), id, userID); err != nil {
-		httputil.RespondError(w, http.StatusBadRequest, "Failed to approve conversation: "+err.Error())
+		httputil.RespondError(w, http.StatusBadRequest, "Failed to approve conversation")
 		return
 	}
 
@@ -108,8 +120,11 @@ func (h *ConversationHandler) Pause(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if !h.authorized(w, r, id) {
+		return
+	}
 	if err := h.convManager.Pause(r.Context(), id); err != nil {
-		httputil.RespondError(w, http.StatusBadRequest, "Failed to pause conversation: "+err.Error())
+		httputil.RespondError(w, http.StatusBadRequest, "Failed to pause conversation")
 		return
 	}
 
@@ -124,10 +139,26 @@ func (h *ConversationHandler) Close(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if !h.authorized(w, r, id) {
+		return
+	}
 	if err := h.convManager.Close(r.Context(), id); err != nil {
-		httputil.RespondError(w, http.StatusBadRequest, "Failed to close conversation: "+err.Error())
+		httputil.RespondError(w, http.StatusBadRequest, "Failed to close conversation")
 		return
 	}
 
 	httputil.RespondJSON(w, http.StatusOK, map[string]string{"message": "Conversation closed"})
+}
+
+func (h *ConversationHandler) authorized(w http.ResponseWriter, r *http.Request, id uuid.UUID) bool {
+	c, err := h.convRepo.GetByID(r.Context(), id)
+	if err != nil {
+		httputil.RespondError(w, 500, "Unable to load conversation")
+		return false
+	}
+	if c == nil || c.OwnerID == nil || *c.OwnerID != httputil.GetUserIDFromContext(r.Context()) {
+		httputil.RespondError(w, 404, "Conversation not found")
+		return false
+	}
+	return true
 }

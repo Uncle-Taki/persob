@@ -55,6 +55,9 @@ func (h *OfferHandler) List(w http.ResponseWriter, r *http.Request) {
 	if pIDStr := q.Get("product_id"); pIDStr != "" {
 		if pID, err := uuid.Parse(pIDStr); err == nil {
 			filter.ProductID = &pID
+		} else {
+			httputil.RespondError(w, 400, "Invalid product_id")
+			return
 		}
 	}
 	if sIDStr := q.Get("seller_id"); sIDStr != "" {
@@ -73,35 +76,54 @@ func (h *OfferHandler) List(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	if offset < 0 {
+		httputil.RespondError(w, 400, "offset must be nonnegative")
+		return
+	}
+	if filter.ListingStatus == "" {
+		filter.ListingStatus = "active"
+	}
+	userID := httputil.GetUserIDFromContext(r.Context())
+	if userID != uuid.Nil {
+		filter.OwnerID = &userID
+	}
+	withScores := q.Get("with_scores") == "true" || filter.SortBy == domain.SortByBestOffer || filter.SortBy == ""
+	filter.Unbounded = withScores
 	offers, total, err := h.offerRepo.List(r.Context(), filter)
 	if err != nil {
-		httputil.RespondError(w, http.StatusInternalServerError, "Failed to list offers: "+err.Error())
+		httputil.RespondError(w, 500, "Unable to list offers")
 		return
 	}
-
-	withScores := q.Get("with_scores") == "true" || filter.SortBy == domain.SortByBestOffer
 	if withScores {
-		var medianPrice int64 = 0
-		if filter.ProductID != nil {
-			stats, err := h.analyticsEngine.CalculateProductStatistics(r.Context(), *filter.ProductID)
-			if err == nil && stats != nil {
-				medianPrice = stats.MedianPrice
+		// Compute each product's baseline from its entire eligible population before paging.
+		baselines := map[uuid.UUID]int64{}
+		for _, o := range offers {
+			if o.ProductID != nil {
+				if _, ok := baselines[*o.ProductID]; !ok {
+					stats, err := h.analyticsEngine.CalculateProductStatistics(r.Context(), *o.ProductID)
+					if err != nil {
+						httputil.RespondError(w, 500, "Unable to calculate offer scores")
+						return
+					}
+					baselines[*o.ProductID] = stats.MedianPrice
+				}
 			}
 		}
-		scored := h.analyticsEngine.ScoreAndRankOffers(offers, medianPrice, filter.SortBy)
-		httputil.RespondWithMeta(w, http.StatusOK, scored, httputil.PaginationMeta{
-			Total:  total,
-			Limit:  limit,
-			Offset: offset,
-		})
+		scored := make([]domain.ScoredOffer, 0, len(offers))
+		for _, o := range offers {
+			median := int64(0)
+			if o.ProductID != nil {
+				median = baselines[*o.ProductID]
+			}
+			scored = append(scored, domain.ScoredOffer{Offer: o, ScoreBreakdown: analytics.ScoreOffer(o, median)})
+		}
+		analytics.SortScoredOffers(scored, filter.SortBy)
+		start := min(offset, len(scored))
+		end := min(start+limit, len(scored))
+		httputil.RespondWithMeta(w, 200, scored[start:end], httputil.PaginationMeta{Total: total, Limit: limit, Offset: offset})
 		return
 	}
-
-	httputil.RespondWithMeta(w, http.StatusOK, offers, httputil.PaginationMeta{
-		Total:  total,
-		Limit:  limit,
-		Offset: offset,
-	})
+	httputil.RespondWithMeta(w, 200, offers, httputil.PaginationMeta{Total: total, Limit: limit, Offset: offset})
 }
 
 func (h *OfferHandler) GetByID(w http.ResponseWriter, r *http.Request) {
@@ -114,10 +136,11 @@ func (h *OfferHandler) GetByID(w http.ResponseWriter, r *http.Request) {
 
 	offer, err := h.offerRepo.GetByID(r.Context(), id)
 	if err != nil {
-		httputil.RespondError(w, http.StatusInternalServerError, "Failed to get offer: "+err.Error())
+		httputil.RespondError(w, http.StatusInternalServerError, "Failed to get offer")
 		return
 	}
-	if offer == nil {
+	userID := httputil.GetUserIDFromContext(r.Context())
+	if offer == nil || (userID != uuid.Nil && (offer.OwnerID == nil || *offer.OwnerID != userID)) {
 		httputil.RespondError(w, http.StatusNotFound, "Offer not found")
 		return
 	}
@@ -155,7 +178,7 @@ func (h *OfferHandler) ListMatches(w http.ResponseWriter, r *http.Request) {
 
 	matches, err := h.matchResultRepo.ListByUserID(r.Context(), userID, limit, offset)
 	if err != nil {
-		httputil.RespondError(w, http.StatusInternalServerError, "Failed to list matches: "+err.Error())
+		httputil.RespondError(w, http.StatusInternalServerError, "Failed to list matches")
 		return
 	}
 

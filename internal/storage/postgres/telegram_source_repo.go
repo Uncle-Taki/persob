@@ -39,15 +39,15 @@ func (r *TelegramSourceRepo) Create(ctx context.Context, s *domain.TelegramSourc
 			id, owner_id, telegram_peer_id, telegram_access_hash, username, title,
 			source_type, access_type, expected_type, detected_type, linked_discussion_peer_id,
 			capabilities, is_active, ingestion_status, last_message_id, last_synced_at,
-			created_at, updated_at
+			created_at, updated_at,external_llm_allowed
 		) VALUES (
 			$1, $2, $3, $4, $5, $6,
 			$7, $8, $9, $10, $11,
 			$12, $13, $14, $15, $16,
-			$17, $18
+			$17, $18,$19
 		)
 		ON CONFLICT (owner_id, telegram_peer_id) DO UPDATE SET
-			title = EXCLUDED.title,
+			external_llm_allowed=EXCLUDED.external_llm_allowed,telegram_access_hash=EXCLUDED.telegram_access_hash,title = EXCLUDED.title,
 			username = EXCLUDED.username,
 			source_type = EXCLUDED.source_type,
 			access_type = EXCLUDED.access_type,
@@ -68,7 +68,7 @@ func (r *TelegramSourceRepo) Create(ctx context.Context, s *domain.TelegramSourc
 		s.ID, s.OwnerID, s.TelegramPeerID, s.TelegramAccessHash, s.Username, s.Title,
 		string(s.SourceType), string(s.AccessType), expectedTypeStr, string(s.DetectedType), s.LinkedDiscussionPeerID,
 		capsJSON, s.IsActive, string(s.IngestionStatus), s.LastMessageID, s.LastSyncedAt,
-		s.CreatedAt, s.UpdatedAt,
+		s.CreatedAt, s.UpdatedAt, s.ExternalLLMAllowed,
 	).Scan(&s.ID, &s.CreatedAt, &s.UpdatedAt)
 
 	if err != nil {
@@ -84,7 +84,7 @@ func (r *TelegramSourceRepo) GetByID(ctx context.Context, id uuid.UUID) (*domain
 			id, owner_id, telegram_peer_id, telegram_access_hash, username, title,
 			source_type, access_type, expected_type, detected_type, linked_discussion_peer_id,
 			capabilities, is_active, ingestion_status, last_message_id, last_synced_at,
-			created_at, updated_at
+			created_at, updated_at,external_llm_allowed
 		FROM telegram_sources
 		WHERE id = $1
 	`
@@ -96,7 +96,7 @@ func (r *TelegramSourceRepo) GetByID(ctx context.Context, id uuid.UUID) (*domain
 		&s.ID, &s.OwnerID, &s.TelegramPeerID, &s.TelegramAccessHash, &s.Username, &s.Title,
 		&s.SourceType, &s.AccessType, &expectedType, &s.DetectedType, &s.LinkedDiscussionPeerID,
 		&capsJSON, &s.IsActive, &s.IngestionStatus, &s.LastMessageID, &s.LastSyncedAt,
-		&s.CreatedAt, &s.UpdatedAt,
+		&s.CreatedAt, &s.UpdatedAt, &s.ExternalLLMAllowed,
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -121,7 +121,7 @@ func (r *TelegramSourceRepo) GetByPeerID(ctx context.Context, ownerID uuid.UUID,
 			id, owner_id, telegram_peer_id, telegram_access_hash, username, title,
 			source_type, access_type, expected_type, detected_type, linked_discussion_peer_id,
 			capabilities, is_active, ingestion_status, last_message_id, last_synced_at,
-			created_at, updated_at
+			created_at, updated_at,external_llm_allowed
 		FROM telegram_sources
 		WHERE owner_id = $1 AND telegram_peer_id = $2
 	`
@@ -133,7 +133,7 @@ func (r *TelegramSourceRepo) GetByPeerID(ctx context.Context, ownerID uuid.UUID,
 		&s.ID, &s.OwnerID, &s.TelegramPeerID, &s.TelegramAccessHash, &s.Username, &s.Title,
 		&s.SourceType, &s.AccessType, &expectedType, &s.DetectedType, &s.LinkedDiscussionPeerID,
 		&capsJSON, &s.IsActive, &s.IngestionStatus, &s.LastMessageID, &s.LastSyncedAt,
-		&s.CreatedAt, &s.UpdatedAt,
+		&s.CreatedAt, &s.UpdatedAt, &s.ExternalLLMAllowed,
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -158,7 +158,7 @@ func (r *TelegramSourceRepo) ListByOwner(ctx context.Context, ownerID uuid.UUID)
 			id, owner_id, telegram_peer_id, telegram_access_hash, username, title,
 			source_type, access_type, expected_type, detected_type, linked_discussion_peer_id,
 			capabilities, is_active, ingestion_status, last_message_id, last_synced_at,
-			created_at, updated_at
+			created_at, updated_at,external_llm_allowed
 		FROM telegram_sources
 		WHERE owner_id = $1
 		ORDER BY created_at DESC
@@ -179,7 +179,7 @@ func (r *TelegramSourceRepo) ListByOwner(ctx context.Context, ownerID uuid.UUID)
 			&s.ID, &s.OwnerID, &s.TelegramPeerID, &s.TelegramAccessHash, &s.Username, &s.Title,
 			&s.SourceType, &s.AccessType, &expectedType, &s.DetectedType, &s.LinkedDiscussionPeerID,
 			&capsJSON, &s.IsActive, &s.IngestionStatus, &s.LastMessageID, &s.LastSyncedAt,
-			&s.CreatedAt, &s.UpdatedAt,
+			&s.CreatedAt, &s.UpdatedAt, &s.ExternalLLMAllowed,
 		); err != nil {
 			return nil, fmt.Errorf("scan telegram source: %w", err)
 		}
@@ -202,7 +202,7 @@ func (r *TelegramSourceRepo) ListActiveSources(ctx context.Context) ([]*domain.T
 			id, owner_id, telegram_peer_id, telegram_access_hash, username, title,
 			source_type, access_type, expected_type, detected_type, linked_discussion_peer_id,
 			capabilities, is_active, ingestion_status, last_message_id, last_synced_at,
-			created_at, updated_at
+			created_at, updated_at,external_llm_allowed
 		FROM telegram_sources
 		WHERE is_active = true AND ingestion_status = 'active'
 		ORDER BY created_at ASC
@@ -223,7 +223,7 @@ func (r *TelegramSourceRepo) ListActiveSources(ctx context.Context) ([]*domain.T
 			&s.ID, &s.OwnerID, &s.TelegramPeerID, &s.TelegramAccessHash, &s.Username, &s.Title,
 			&s.SourceType, &s.AccessType, &expectedType, &s.DetectedType, &s.LinkedDiscussionPeerID,
 			&capsJSON, &s.IsActive, &s.IngestionStatus, &s.LastMessageID, &s.LastSyncedAt,
-			&s.CreatedAt, &s.UpdatedAt,
+			&s.CreatedAt, &s.UpdatedAt, &s.ExternalLLMAllowed,
 		); err != nil {
 			return nil, fmt.Errorf("scan active telegram source: %w", err)
 		}
@@ -291,4 +291,35 @@ func (r *TelegramSourceRepo) PeerMonitoringStatus(ctx context.Context, peerID in
 	err = r.db.Pool.QueryRow(ctx, `SELECT COUNT(*) > 0, COALESCE(BOOL_OR(is_active AND ingestion_status = 'active'), false)
  FROM telegram_sources WHERE telegram_peer_id=$1 OR linked_discussion_peer_id=$1`, peerID).Scan(&configured, &active)
 	return
+}
+
+func (r *TelegramSourceRepo) HistoryCheckpoint(ctx context.Context, id uuid.UUID) (int64, error) {
+	var n int64
+	err := r.db.Pool.QueryRow(ctx, `SELECT history_message_id FROM telegram_sources WHERE id=$1`, id).Scan(&n)
+	return n, err
+}
+func (r *TelegramSourceRepo) CompleteHistoryScan(ctx context.Context, id uuid.UUID, last int64) error {
+	_, err := r.db.Pool.Exec(ctx, `UPDATE telegram_sources SET history_message_id=GREATEST(history_message_id,$2),last_message_id=GREATEST(last_message_id,$2),last_synced_at=NOW() WHERE id=$1`, id, last)
+	return err
+}
+
+func (r *TelegramSourceRepo) AllowExternalProcessing(ctx context.Context, id string, owner uuid.UUID) (bool, error) {
+	key, err := uuid.Parse(id)
+	if err != nil {
+		return false, nil
+	}
+	var allowed bool
+	err = r.db.Pool.QueryRow(ctx, `SELECT external_llm_allowed AND is_active AND ingestion_status='active' FROM telegram_sources WHERE id=$1 AND owner_id=$2`, key, owner).Scan(&allowed)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, nil
+	}
+	return allowed, err
+}
+func (r *TelegramSourceRepo) ReserveLLMRequest(ctx context.Context, limit int) (bool, error) {
+	var count int
+	err := r.db.Pool.QueryRow(ctx, `INSERT INTO llm_usage_buckets(minute,requests)VALUES(date_trunc('minute',NOW()),1) ON CONFLICT(minute) DO UPDATE SET requests=llm_usage_buckets.requests+1 WHERE llm_usage_buckets.requests<$1 RETURNING requests`, limit).Scan(&count)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, nil
+	}
+	return count > 0, err
 }

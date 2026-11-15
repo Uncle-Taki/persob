@@ -23,20 +23,22 @@ func NewProducer(client *Client, streamKey string) *Producer {
 }
 
 type StreamPayload struct {
-	TelegramChatID    int64     `json:"telegram_chat_id"`
-	TelegramMessageID int64     `json:"telegram_message_id"`
-	ChatTitle         string    `json:"chat_title,omitempty"`
-	ChatUsername      string    `json:"chat_username,omitempty"`
-	SenderID          int64     `json:"sender_id"`
-	SenderUsername    string    `json:"sender_username,omitempty"`
-	SenderDisplayName string    `json:"sender_display_name,omitempty"`
-	MessageText       string    `json:"message_text"`
-	MessageDate       time.Time `json:"message_date"`
-	ReceivedAt        time.Time `json:"received_at"`
+	Message           *domain.TelegramMessage `json:"message,omitempty"`
+	TelegramChatID    int64                   `json:"telegram_chat_id"`
+	TelegramMessageID int64                   `json:"telegram_message_id"`
+	ChatTitle         string                  `json:"chat_title,omitempty"`
+	ChatUsername      string                  `json:"chat_username,omitempty"`
+	SenderID          int64                   `json:"sender_id"`
+	SenderUsername    string                  `json:"sender_username,omitempty"`
+	SenderDisplayName string                  `json:"sender_display_name,omitempty"`
+	MessageText       string                  `json:"message_text"`
+	MessageDate       time.Time               `json:"message_date"`
+	ReceivedAt        time.Time               `json:"received_at"`
 }
 
 func (p *Producer) PublishMessage(ctx context.Context, msg *domain.TelegramMessage) (string, error) {
 	payload := StreamPayload{
+		Message:           msg,
 		TelegramChatID:    msg.TelegramChatID,
 		TelegramMessageID: msg.TelegramMessageID,
 		ChatTitle:         msg.ChatTitle,

@@ -1,0 +1,47 @@
+name: Backend checks
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  unit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - run: test -z "$(gofmt -l .)"
+      - run: go test -race ./...
+      - run: go vet ./...
+      - run: go build ./cmd/perso
+      - run: python3 scripts/sync-openapi.py && git diff --exit-code -- internal/api/openapi.yaml
+  acceptance:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_HOST_AUTH_METHOD: trust
+          POSTGRES_DB: perso_audit
+        ports: ["55439:5432"]
+        options: --health-cmd "pg_isready -U postgres -d perso_audit" --health-interval 3s --health-timeout 5s --health-retries 30
+      redis:
+        image: redis:7-alpine
+        ports: ["56389:6379"]
+        options: --health-cmd "redis-cli ping" --health-interval 3s --health-timeout 5s --health-retries 30
+      mongodb:
+        image: mongo:7.0
+        ports: ["57039:27017"]
+        options: --health-cmd "mongosh --quiet --eval 'db.adminCommand({ping:1})'" --health-interval 3s --health-timeout 5s --health-retries 30
+    env:
+      PERSO_AUDIT_DATABASE_URL: postgres://postgres@127.0.0.1:55439/perso_audit?sslmode=disable
+      PERSO_AUDIT_REDIS_ADDR: 127.0.0.1:56389
+      PERSO_AUDIT_MONGO_URI: mongodb://127.0.0.1:57039
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - run: go test -tags=audit -count=1 -race -v ./internal/audit ./internal/telegram
