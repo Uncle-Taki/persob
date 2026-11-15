@@ -56,7 +56,7 @@ func (r *MessagesRepo) UpsertMessage(ctx context.Context, msg *domain.TelegramMe
 	}
 	firstSeen["original_message_text"] = bson.M{"$ifNull": bson.A{"$original_message_text", bson.M{"$ifNull": bson.A{"$message_text", literal(msg.MessageText)}}}}
 	current := bson.M{
-		"message_text": literal(msg.MessageText), "normalized_text": literal(msg.NormalizedText),
+		"deleted": literal(msg.Deleted), "dispatch_pending": literal(true), "dispatch_hash": literal(domain.RevisionKey(msg)), "message_text": literal(msg.MessageText), "normalized_text": literal(msg.NormalizedText),
 		"processing_status": literal(msg.ProcessingStatus), "processing_version": literal(msg.ProcessingVersion),
 		"topic_id": literal(msg.TopicID), "linked_post_id": literal(msg.LinkedPostID),
 		"source_type": literal(msg.SourceType), "reply_to_message_id": literal(msg.ReplyToMessageID),
@@ -128,4 +128,24 @@ func (r *MessagesRepo) GetPendingMessages(ctx context.Context, limit int64) ([]d
 		return nil, fmt.Errorf("decode pending messages: %w", err)
 	}
 	return msgs, nil
+}
+
+func (r *MessagesRepo) MarkDispatched(ctx context.Context, msg *domain.TelegramMessage) error {
+	_, err := r.coll.UpdateOne(ctx, bson.M{"telegram_chat_id": msg.TelegramChatID, "telegram_message_id": msg.TelegramMessageID, "dispatch_hash": domain.RevisionKey(msg)}, bson.M{"$set": bson.M{"dispatch_pending": false}})
+	return err
+}
+func (r *MessagesRepo) GetUndispatched(ctx context.Context) ([]domain.TelegramMessage, error) {
+	cursor, err := r.coll.Find(ctx, bson.M{"dispatch_pending": true}, options.Find().SetLimit(100).SetSort(bson.D{{Key: "received_at", Value: 1}}))
+	if err != nil {
+		return nil, err
+	}
+	defer cursor.Close(ctx)
+	var msgs []domain.TelegramMessage
+	err = cursor.All(ctx, &msgs)
+	return msgs, err
+}
+
+func (r *MessagesRepo) ConfigureRetention(ctx context.Context, days int) error {
+	_, err := r.coll.UpdateMany(ctx, bson.M{"expires_at": bson.M{"$exists": false}}, mongo.Pipeline{bson.D{{Key: "$set", Value: bson.M{"expires_at": bson.M{"$dateAdd": bson.M{"startDate": "$received_at", "unit": "day", "amount": days}}}}}})
+	return err
 }

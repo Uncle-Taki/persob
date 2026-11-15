@@ -1,14 +1,14 @@
 openapi: 3.0.3
 info:
   title: Perso Marketplace API
-  description: >
-    Backend API for Perso — Intelligent Telegram marketplace monitoring and product-price discovery platform.
-    Initial focus: Iranian electronic marketplace.
+  description: 'Backend API for Perso — Intelligent Telegram marketplace monitoring
+    and product-price discovery platform. Initial focus: Iranian electronic marketplace.
+
+    '
   version: 1.0.0
 servers:
-  - url: http://localhost:8080
-    description: Local development server
-
+- url: http://localhost:8080
+  description: Local development server
 paths:
   /health:
     get:
@@ -17,7 +17,7 @@ paths:
       responses:
         '200':
           description: Service is healthy
-
+      security: []
   /ready:
     get:
       summary: Readiness probe (database and queue connectivity)
@@ -27,7 +27,7 @@ paths:
           description: All dependencies are up and ready
         '503':
           description: One or more dependencies are down
-
+      security: []
   /api/v1/interests:
     get:
       summary: List user interests
@@ -44,30 +44,29 @@ paths:
           application/json:
             schema:
               type: object
-              required: [product_id]
+              required:
+              - product_id
               properties:
                 product_id:
                   type: string
                   format: uuid
       responses:
         '201':
-          description: "Interest created (Phase 1: buy_enabled=true, sell_enabled=false)"
-
+          description: 'Interest created (Phase 1: buy_enabled=true, sell_enabled=false)'
   /api/v1/interests/{id}:
     delete:
       summary: Remove product from interest list
       operationId: deleteInterest
       parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-            format: uuid
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
       responses:
         '200':
           description: Interest deleted
-
   /api/v1/watch-sources:
     get:
       summary: List monitored Telegram groups and channels
@@ -84,7 +83,9 @@ paths:
           application/json:
             schema:
               type: object
-              required: [telegram_chat_id, title]
+              required:
+              - telegram_chat_id
+              - title
               properties:
                 telegram_chat_id:
                   type: integer
@@ -95,229 +96,236 @@ paths:
                   type: string
                 source_type:
                   type: string
-                  enum: [channel, group, supergroup]
+                  enum:
+                  - channel
+                  - group
+                  - supergroup
       responses:
         '201':
-          description: "Watch source added (Phase 1: buy_enabled=true, sell_enabled=false)"
-
+          description: 'Watch source added (Phase 1: buy_enabled=true, sell_enabled=false)'
   /api/v1/watch-sources/{id}:
     delete:
       summary: Remove Telegram source from watch list
       operationId: deleteWatchSource
       parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-            format: uuid
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
       responses:
         '200':
           description: Watch source deleted
-
   /api/v1/products:
     get:
       summary: List canonical products
       operationId: listProducts
       parameters:
-        - name: search
-          in: query
-          schema:
-            type: string
-        - name: category
-          in: query
-          schema:
-            type: string
-        - name: limit
-          in: query
-          schema:
-            type: integer
-            default: 20
-        - name: offset
-          in: query
-          schema:
-            type: integer
-            default: 0
+      - name: search
+        in: query
+        schema:
+          type: string
+      - name: category
+        in: query
+        schema:
+          type: string
+      - name: limit
+        in: query
+        schema:
+          type: integer
+          default: 20
+      - name: offset
+        in: query
+        schema:
+          type: integer
+          default: 0
       responses:
         '200':
           description: Products catalog list
-
   /api/v1/products/{id}:
     get:
       summary: Get product details with aliases
       operationId: getProduct
       parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-            format: uuid
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
       responses:
         '200':
           description: Product details
-
   /api/v1/products/{id}/statistics:
     get:
       summary: Get calculated price statistics and distribution for a product
       operationId: getProductStatistics
       parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-            format: uuid
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
       responses:
         '200':
-          description: Price statistics (min, max, average, median, range, distribution, trend)
-
+          description: Price statistics (min, max, average, median, range, distribution,
+            trend)
   /api/v1/offers:
     get:
       summary: List seller offers
       operationId: listOffers
       parameters:
-        - name: product_id
-          in: query
-          schema:
-            type: string
-            format: uuid
-        - name: brand
-          in: query
-          schema:
-            type: string
-        - name: condition
-          in: query
-          schema:
-            type: string
-        - name: min_price
-          in: query
-          schema:
-            type: integer
-        - name: max_price
-          in: query
-          schema:
-            type: integer
-        - name: sort_by
-          in: query
-          schema:
-            type: string
-            enum: [lowest_price, highest_price, newest, best_offer, confidence, freshness]
-        - name: with_scores
-          in: query
-          schema:
-            type: boolean
-        - name: limit
-          in: query
-          schema:
-            type: integer
-            default: 20
-        - name: offset
-          in: query
-          schema:
-            type: integer
-            default: 0
+      - name: product_id
+        in: query
+        schema:
+          type: string
+          format: uuid
+      - name: brand
+        in: query
+        schema:
+          type: string
+      - name: condition
+        in: query
+        schema:
+          type: string
+      - name: min_price
+        in: query
+        schema:
+          type: integer
+      - name: max_price
+        in: query
+        schema:
+          type: integer
+      - name: sort_by
+        in: query
+        schema:
+          type: string
+          enum:
+          - lowest_price
+          - highest_price
+          - newest
+          - best_offer
+          - confidence
+          - freshness
+      - name: with_scores
+        in: query
+        schema:
+          type: boolean
+      - name: limit
+        in: query
+        schema:
+          type: integer
+          default: 20
+      - name: offset
+        in: query
+        schema:
+          type: integer
+          default: 0
       responses:
         '200':
           description: List of seller offers
-
   /api/v1/offers/{id}:
     get:
       summary: Get offer by ID with explainable score breakdown
       operationId: getOffer
       parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-            format: uuid
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
       responses:
         '200':
           description: Offer details with score breakdown
-
   /api/v1/conversations:
     get:
       summary: List conversation outreach workflows
       operationId: listConversations
       parameters:
-        - name: state
-          in: query
-          schema:
-            type: string
-            enum: [NEW, AWAITING_APPROVAL, AWAITING_CONSENT, ACTIVE, WAITING_FOR_REPLY, COMPLETED, DECLINED, OPTED_OUT, PAUSED]
-        - name: limit
-          in: query
-          schema:
-            type: integer
-        - name: offset
-          in: query
-          schema:
-            type: integer
+      - name: state
+        in: query
+        schema:
+          type: string
+          enum:
+          - NEW
+          - AWAITING_APPROVAL
+          - AWAITING_CONSENT
+          - ACTIVE
+          - WAITING_FOR_REPLY
+          - COMPLETED
+          - DECLINED
+          - OPTED_OUT
+          - PAUSED
+      - name: limit
+        in: query
+        schema:
+          type: integer
+      - name: offset
+        in: query
+        schema:
+          type: integer
       responses:
         '200':
           description: List of conversations
-
   /api/v1/conversations/{id}:
     get:
       summary: Get conversation state and full message history
       operationId: getConversation
       parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-            format: uuid
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
       responses:
         '200':
           description: Conversation state and chat history
-
   /api/v1/conversations/{id}/approve:
     post:
       summary: Approve seller outreach conversation draft (human review gate)
       operationId: approveConversation
       parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-            format: uuid
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
       responses:
         '200':
           description: Conversation approved and activated
-
   /api/v1/conversations/{id}/pause:
     post:
       summary: Pause an ongoing conversation
       operationId: pauseConversation
       parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-            format: uuid
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
       responses:
         '200':
           description: Conversation paused
-
   /api/v1/conversations/{id}/close:
     post:
       summary: Close/complete a conversation
       operationId: closeConversation
       parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-            format: uuid
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
       responses:
         '200':
           description: Conversation closed
-
   /api/v1/dashboard/summary:
     get:
       summary: Marketplace dashboard summary metrics
@@ -325,22 +333,20 @@ paths:
       responses:
         '200':
           description: Overall metrics summary
-
   /api/v1/analytics/prices:
     get:
       summary: Price analytics and 30-day historical trend for product
       operationId: getPriceAnalytics
       parameters:
-        - name: product_id
-          in: query
-          required: true
-          schema:
-            type: string
-            format: uuid
+      - name: product_id
+        in: query
+        required: true
+        schema:
+          type: string
+          format: uuid
       responses:
         '200':
           description: Price analytics and historical observations
-
   /api/v1/analytics/offers:
     get:
       summary: Best-ranked deals and marketplace offers overview
@@ -348,7 +354,6 @@ paths:
       responses:
         '200':
           description: Top deals and offers overview
-
   /api/v1/sources/resolve:
     post:
       summary: Resolve and detect Telegram entity type and capabilities
@@ -366,7 +371,6 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ResolveSourceResponse'
-
   /api/v1/sources:
     get:
       summary: List configured Telegram sources
@@ -386,18 +390,17 @@ paths:
       responses:
         '201':
           description: Source registered successfully
-
   /api/v1/sources/{id}:
     get:
       summary: Get Telegram source details
       operationId: getTelegramSource
       parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-            format: uuid
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
       responses:
         '200':
           description: Source details
@@ -405,42 +408,40 @@ paths:
       summary: Delete a Telegram source
       operationId: deleteTelegramSource
       parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-            format: uuid
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
       responses:
         '200':
           description: Source deleted
-
   /api/v1/sources/{id}/capabilities:
     get:
       summary: Get Telegram source capabilities
       operationId: getSourceCapabilities
       parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-            format: uuid
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
       responses:
         '200':
           description: Ingestion capabilities
-
   /api/v1/sources/{id}/status:
     put:
       summary: Update source ingestion status
       operationId: updateSourceStatus
       parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-            format: uuid
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
       requestBody:
         required: true
         content:
@@ -450,7 +451,6 @@ paths:
       responses:
         '200':
           description: Status updated
-
   /api/v1/matches:
     get:
       summary: List matched buying opportunities for the user
@@ -458,35 +458,32 @@ paths:
       responses:
         '200':
           description: List of matched seller offers with explanations
-
   /api/v1/analytics/comparisons/condition:
     get:
       summary: Price comparison by condition
       operationId: compareCondition
       parameters:
-        - name: product_id
-          in: query
-          schema:
-            type: string
-            format: uuid
+      - name: product_id
+        in: query
+        schema:
+          type: string
+          format: uuid
       responses:
         '200':
           description: Condition price comparison
-
   /api/v1/analytics/comparisons/city:
     get:
       summary: Price comparison by seller city
       operationId: compareCity
       parameters:
-        - name: product_id
-          in: query
-          schema:
-            type: string
-            format: uuid
+      - name: product_id
+        in: query
+        schema:
+          type: string
+          format: uuid
       responses:
         '200':
           description: City price comparison
-
   /api/v1/analytics/comparisons/brand:
     get:
       summary: Price comparison across marketplace brands
@@ -494,18 +491,52 @@ paths:
       responses:
         '200':
           description: Brand price comparison
-
+  /api/v1/session:
+    get:
+      summary: Current authenticated operator and capabilities
+      operationId: getSession
+      responses:
+        '200':
+          description: Session identity
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - success
+                - data
+                properties:
+                  success: &id005
+                    type: boolean
+                  data:
+                    $ref: '#/components/schemas/Session'
+        '401':
+          description: Authentication required
+  /api/v1/telegram/status:
+    get:
+      summary: Status of the account-owning Telegram gateway
+      operationId: getTelegramStatus
+      responses:
+        '200':
+          description: Connected and mock flags
+        '503':
+          description: Gateway unavailable
 components:
   schemas:
     ResolveSourceRequest:
       type: object
-      required: [address]
+      required:
+      - address
       properties:
         address:
           type: string
         expected_type:
           type: string
-          enum: [basic_group, supergroup, forum, broadcast_channel]
+          enum:
+          - basic_group
+          - supergroup
+          - forum
+          - broadcast_channel
     ResolveSourceResponse:
       type: object
       properties:
@@ -520,10 +551,16 @@ components:
           type: string
         detected_type:
           type: string
-          enum: [basic_group, supergroup, forum, broadcast_channel]
+          enum:
+          - basic_group
+          - supergroup
+          - forum
+          - broadcast_channel
         access_type:
           type: string
-          enum: [public, private]
+          enum:
+          - public
+          - private
         expected_type:
           type: string
         type_mismatch:
@@ -539,7 +576,8 @@ components:
           type: boolean
     CreateTelegramSourceRequest:
       type: object
-      required: [address]
+      required:
+      - address
       properties:
         address:
           type: string
@@ -554,11 +592,16 @@ components:
           type: string
     UpdateTelegramSourceStatusRequest:
       type: object
-      required: [ingestion_status]
+      required:
+      - ingestion_status
       properties:
         ingestion_status:
           type: string
-          enum: [active, paused, error, unauthorized]
+          enum:
+          - active
+          - paused
+          - error
+          - unauthorized
         is_active:
           type: boolean
     SourceCapabilities:
@@ -572,3 +615,226 @@ components:
           type: boolean
         sender_metadata_available:
           type: boolean
+    Product:
+      type: object
+      required:
+      - id
+      - name
+      - brand
+      - model
+      - category
+      - attributes
+      properties:
+        id: &id002
+          type: string
+          format: uuid
+        name: &id001
+          type: string
+        brand: *id001
+        model: *id001
+        category: *id001
+        attributes:
+          type: object
+          additionalProperties: true
+    Offer:
+      type: object
+      required:
+      - id
+      - source_message_id
+      - source_item_key
+      - condition
+      - quantity
+      - price_currency
+      - branded
+      - branded_known
+      - created_at
+      - updated_at
+      - listing_status
+      properties:
+        id: *id002
+        product_id: *id002
+        source_message_id: *id001
+        source_item_key: *id001
+        source_revision_at: &id003
+          type: string
+          format: date-time
+        source_published_at: *id003
+        seller_id: &id004
+          type: integer
+        brand: *id001
+        manufacturer: *id001
+        model: *id001
+        condition: *id001
+        quantity: *id004
+        price_amount: *id004
+        price_currency:
+          type: string
+          enum:
+          - IRR_RIAL
+          - IRR_TOMAN
+        price_confidence: &id006
+          type: number
+        branded: *id005
+        branded_known: *id005
+        seller_city: *id001
+        seller_area: *id001
+        listing_status: *id001
+        created_at: *id003
+        updated_at: *id003
+        product:
+          $ref: '#/components/schemas/Product'
+    ScoreBreakdown:
+      type: object
+      required:
+      - final_score
+      - explanation
+      - price_competitiveness
+      - product_condition
+      - offer_freshness
+      - extraction_confidence
+      - variant_match
+      - location_match
+      properties:
+        final_score: *id006
+        explanation: *id001
+        price_competitiveness: *id006
+        product_condition: *id006
+        offer_freshness: *id006
+        extraction_confidence: *id006
+        variant_match: *id006
+        location_match: *id006
+    ScoredOffer:
+      type: object
+      required:
+      - offer
+      - score_breakdown
+      properties:
+        offer:
+          $ref: '#/components/schemas/Offer'
+        score_breakdown:
+          $ref: '#/components/schemas/ScoreBreakdown'
+    Interest:
+      type: object
+      required:
+      - id
+      - product_id
+      - user_id
+      - buy_enabled
+      - sell_enabled
+      properties:
+        id: *id002
+        product_id: *id002
+        user_id: *id002
+        buy_enabled: *id005
+        sell_enabled: *id005
+        product:
+          $ref: '#/components/schemas/Product'
+    TelegramSource:
+      type: object
+      required:
+      - id
+      - owner_id
+      - telegram_peer_id
+      - title
+      - source_type
+      - access_type
+      - ingestion_status
+      - is_active
+      - last_message_id
+      properties:
+        id: *id002
+        owner_id: *id002
+        telegram_peer_id: *id004
+        username: *id001
+        title: *id001
+        source_type:
+          type: string
+          enum:
+          - basic_group
+          - supergroup
+          - forum
+          - broadcast_channel
+        access_type: *id001
+        capabilities:
+          $ref: '#/components/schemas/SourceCapabilities'
+        ingestion_status: *id001
+        is_active: *id005
+        last_message_id: *id004
+        last_synced_at: *id003
+    Conversation:
+      type: object
+      required:
+      - id
+      - seller_id
+      - state
+      - consent_granted
+      - missing_fields
+      - updated_at
+      - version
+      properties:
+        id: *id002
+        owner_id: *id002
+        offer_id: *id002
+        product_id: *id002
+        seller_id: *id004
+        state: *id001
+        consent_granted: *id005
+        missing_fields:
+          type: array
+          items: *id001
+        collected_data:
+          type: object
+          additionalProperties: true
+        questions_asked_count: *id004
+        updated_at: *id003
+        version: *id004
+    Session:
+      type: object
+      required:
+      - user_id
+      - catalog_domain
+      - workspace_mode
+      - demo
+      - outreach_enabled
+      properties:
+        user_id: *id002
+        catalog_domain:
+          type: string
+          enum:
+          - electronics
+        workspace_mode:
+          type: string
+          enum:
+          - single_operator
+        demo: *id005
+        outreach_enabled: *id005
+    PriceStatistics:
+      type: object
+      required:
+      - product_id
+      - currency
+      - min_price
+      - median_price
+      - max_price
+      - avg_price
+      - sample_count
+      - methodology
+      - last_calculated
+      properties:
+        product_id: *id002
+        currency: *id001
+        min_price: *id004
+        median_price: *id004
+        max_price: *id004
+        avg_price: *id004
+        sample_count: *id004
+        methodology: *id001
+        last_calculated: *id003
+  securitySchemes:
+    OperatorToken:
+      type: http
+      scheme: bearer
+      description: Random API_TOKEN configured for the initial single-operator workspace;
+        never X-User-ID.
+security:
+- OperatorToken: []

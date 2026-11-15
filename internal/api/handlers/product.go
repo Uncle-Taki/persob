@@ -36,9 +36,13 @@ func (h *ProductHandler) List(w http.ResponseWriter, r *http.Request) {
 		limit = 100
 	}
 
+	if offset < 0 {
+		httputil.RespondError(w, 400, "offset must be nonnegative")
+		return
+	}
 	products, total, err := h.productRepo.List(r.Context(), limit, offset, search, category)
 	if err != nil {
-		httputil.RespondError(w, http.StatusInternalServerError, "Failed to list products: "+err.Error())
+		httputil.RespondError(w, http.StatusInternalServerError, "Failed to list products")
 		return
 	}
 
@@ -59,7 +63,7 @@ func (h *ProductHandler) GetByID(w http.ResponseWriter, r *http.Request) {
 
 	product, err := h.productRepo.GetByID(r.Context(), id)
 	if err != nil {
-		httputil.RespondError(w, http.StatusInternalServerError, "Failed to get product: "+err.Error())
+		httputil.RespondError(w, http.StatusInternalServerError, "Failed to get product")
 		return
 	}
 	if product == nil {
@@ -80,7 +84,7 @@ func (h *ProductHandler) GetStatistics(w http.ResponseWriter, r *http.Request) {
 
 	stats, err := h.analyticsEngine.CalculateProductStatistics(r.Context(), id)
 	if err != nil {
-		httputil.RespondError(w, http.StatusInternalServerError, "Failed to calculate statistics: "+err.Error())
+		httputil.RespondError(w, http.StatusInternalServerError, "Failed to calculate statistics")
 		return
 	}
 

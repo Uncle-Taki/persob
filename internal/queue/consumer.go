@@ -5,112 +5,129 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/redis/go-redis/v9"
 	"log/slog"
 	"time"
-
-	"github.com/redis/go-redis/v9"
 )
 
-type MessageHandler func(ctx context.Context, msgID string, payload *StreamPayload) error
-
+type MessageHandler func(context.Context, string, *StreamPayload) error
 type Consumer struct {
-	client       *Client
-	streamKey    string
-	groupName    string
-	consumerName string
-	batchSize    int
-	maxRetries   int
+	client                             *Client
+	streamKey, groupName, consumerName string
+	batchSize, maxRetries              int
+	claimCursor                        string
 }
 
-func NewConsumer(client *Client, streamKey, groupName, consumerName string, batchSize int) *Consumer {
-	if batchSize <= 0 {
-		batchSize = 10
+func NewConsumer(client *Client, stream, group, name string, batch int) *Consumer {
+	if batch <= 0 {
+		batch = 10
 	}
-	return &Consumer{
-		client:       client,
-		streamKey:    streamKey,
-		groupName:    groupName,
-		consumerName: consumerName,
-		batchSize:    batchSize,
-		maxRetries:   3,
-	}
+	return &Consumer{client: client, streamKey: stream, groupName: group, consumerName: name, batchSize: batch, maxRetries: 3, claimCursor: "0-0"}
 }
 
-// Start consumes messages continuously until ctx is cancelled
+// Start reclaims abandoned entries as well as new work. Heartbeats protect active
+// handlers from idle claims, including slow external-provider calls.
 func (c *Consumer) Start(ctx context.Context, handler MessageHandler) error {
-	slog.Info("starting redis stream consumer",
-		"stream", c.streamKey,
-		"group", c.groupName,
-		"consumer", c.consumerName,
-	)
-
-	for {
-		select {
-		case <-ctx.Done():
-			slog.Info("consumer stopping due to context cancellation")
-			return nil
-		default:
-		}
-
-		// Read new messages with XReadGroup
-		streams, err := c.client.Rdb.XReadGroup(ctx, &redis.XReadGroupArgs{
-			Group:    c.groupName,
-			Consumer: c.consumerName,
-			Streams:  []string{c.streamKey, ">"},
-			Count:    int64(c.batchSize),
-			Block:    2 * time.Second,
-		}).Result()
-
-		if err != nil {
-			if errors.Is(err, redis.Nil) || errors.Is(err, context.Canceled) {
-				continue
-			}
-			slog.Error("redis xreadgroup error", "error", err)
+	heartbeatCtx, stopHeartbeat := context.WithCancel(ctx)
+	defer stopHeartbeat()
+	go func() {
+		ticker := time.NewTicker(3 * time.Second)
+		defer ticker.Stop()
+		for {
+			_ = c.client.Rdb.Set(heartbeatCtx, c.streamKey+":workers:"+c.consumerName, time.Now().UTC().Format(time.RFC3339), 15*time.Second).Err()
 			select {
-			case <-ctx.Done():
-				return nil
-			case <-time.After(1 * time.Second):
+			case <-heartbeatCtx.Done():
+				return
+			case <-ticker.C:
+			}
+		}
+	}()
+	for ctx.Err() == nil {
+		messages, next, err := c.client.Rdb.XAutoClaim(ctx, &redis.XAutoClaimArgs{Stream: c.streamKey, Group: c.groupName, Consumer: c.consumerName, MinIdle: time.Second, Start: c.claimCursor, Count: int64(c.batchSize)}).Result()
+		if err != nil && !errors.Is(err, redis.Nil) && ctx.Err() == nil {
+			slog.Error("reclaim pending work", "error", err)
+		}
+		if next != "" {
+			c.claimCursor = next
+		}
+		for _, msg := range messages {
+			if err := c.processOne(ctx, msg, handler); err != nil {
+				slog.Warn("retry failed", "id", msg.ID, "error", err)
+			}
+		}
+		streams, err := c.client.Rdb.XReadGroup(ctx, &redis.XReadGroupArgs{Group: c.groupName, Consumer: c.consumerName, Streams: []string{c.streamKey, ">"}, Count: 1, Block: 500 * time.Millisecond}).Result()
+		if err != nil {
+			if !errors.Is(err, redis.Nil) && ctx.Err() == nil {
+				slog.Error("read stream", "error", err)
+				select {
+				case <-ctx.Done():
+				case <-time.After(time.Second):
+				}
 			}
 			continue
 		}
-
 		for _, stream := range streams {
-			for _, xMsg := range stream.Messages {
-				if err := c.processOne(ctx, xMsg, handler); err != nil {
-					slog.Error("failed to process stream message", "id", xMsg.ID, "error", err)
+			for _, msg := range stream.Messages {
+				if err := c.processOne(ctx, msg, handler); err != nil {
+					slog.Warn("message processing failed", "id", msg.ID, "error", err)
 				}
 			}
 		}
 	}
+	return nil
 }
-
-func (c *Consumer) processOne(ctx context.Context, xMsg redis.XMessage, handler MessageHandler) error {
-	rawPayload, ok := xMsg.Values["payload"].(string)
+func (c *Consumer) processOne(ctx context.Context, msg redis.XMessage, handler MessageHandler) error {
+	raw, ok := msg.Values["payload"].(string)
 	if !ok {
-		// Bad message structure, ack and discard
-		_ = c.client.Rdb.XAck(ctx, c.streamKey, c.groupName, xMsg.ID).Err()
-		return fmt.Errorf("invalid payload format for msg %s", xMsg.ID)
+		return c.deadLetter(ctx, msg, "invalid payload format")
 	}
-
 	var payload StreamPayload
-	if err := json.Unmarshal([]byte(rawPayload), &payload); err != nil {
-		_ = c.client.Rdb.XAck(ctx, c.streamKey, c.groupName, xMsg.ID).Err()
-		return fmt.Errorf("unmarshal stream payload: %w", err)
+	if err := json.Unmarshal([]byte(raw), &payload); err != nil {
+		return c.deadLetter(ctx, msg, "invalid payload JSON")
 	}
-
-	// Execute handler
-	err := handler(ctx, xMsg.ID, &payload)
+	pending, err := c.client.Rdb.XPendingExt(ctx, &redis.XPendingExtArgs{Stream: c.streamKey, Group: c.groupName, Start: msg.ID, End: msg.ID, Count: 1}).Result()
 	if err != nil {
-		// Log error; can be retried or sent to DLQ
-		slog.Warn("handler error for stream message", "msg_id", xMsg.ID, "error", err)
 		return err
 	}
-
-	// Success, acknowledge message
-	if ackErr := c.client.Rdb.XAck(ctx, c.streamKey, c.groupName, xMsg.ID).Err(); ackErr != nil {
-		slog.Error("failed to xack message", "msg_id", xMsg.ID, "error", ackErr)
-		return ackErr
+	if len(pending) > 0 && pending[0].RetryCount > int64(c.maxRetries) {
+		return c.deadLetter(ctx, msg, "retry limit exceeded")
 	}
-
+	workCtx, cancel := context.WithTimeout(ctx, 45*time.Second)
+	defer cancel()
+	done := make(chan struct{})
+	heartbeatDone := make(chan struct{})
+	go func() {
+		defer close(heartbeatDone)
+		ticker := time.NewTicker(250 * time.Millisecond)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-done:
+				return
+			case <-workCtx.Done():
+				return
+			case <-ticker.C:
+				// JUSTID renews the lease without incrementing the delivery count.
+				_ = c.client.Rdb.XClaimJustID(workCtx, &redis.XClaimArgs{Stream: c.streamKey, Group: c.groupName, Consumer: c.consumerName, MinIdle: 0, Messages: []string{msg.ID}}).Err()
+			}
+		}
+	}()
+	err = handler(workCtx, msg.ID, &payload)
+	close(done)
+	<-heartbeatDone
+	if err != nil {
+		return err
+	}
+	ackCtx, ackCancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
+	defer ackCancel()
+	return c.client.Rdb.XAck(ackCtx, c.streamKey, c.groupName, msg.ID).Err()
+}
+func (c *Consumer) deadLetter(ctx context.Context, msg redis.XMessage, reason string) error {
+	raw, _ := json.Marshal(msg.Values)
+	script := `local p=redis.call('XPENDING',KEYS[1],ARGV[1],ARGV[2],ARGV[2],1); if #p==0 then return 0 end; redis.call('XADD',KEYS[2],'*','original_id',ARGV[2],'group',ARGV[1],'reason',ARGV[3],'entry',ARGV[4]); return redis.call('XACK',KEYS[1],ARGV[1],ARGV[2])`
+	if err := c.client.Rdb.Eval(ctx, script, []string{c.streamKey, c.streamKey + ":dead"}, c.groupName, msg.ID, reason, string(raw)).Err(); err != nil {
+		return fmt.Errorf("dead-letter: %w", err)
+	}
+	slog.Error("message dead-lettered", "id", msg.ID, "reason", reason)
 	return nil
 }

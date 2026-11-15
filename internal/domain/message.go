@@ -27,6 +27,8 @@ const (
 )
 
 type TelegramMessage struct {
+	Deleted bool `bson:"deleted" json:"deleted"`
+
 	OriginalMessageText string                 `bson:"original_message_text,omitempty" json:"original_message_text,omitempty"`
 	ID                  primitive.ObjectID     `bson:"_id,omitempty" json:"id"`
 	SourceID            string                 `bson:"source_id,omitempty" json:"source_id,omitempty"`
@@ -94,6 +96,8 @@ type ExtractedLocation struct {
 }
 
 type ExtractedMessage struct {
+	SourceRevisionAt time.Time `bson:"source_revision_at" json:"source_revision_at"`
+
 	ID                primitive.ObjectID `bson:"_id,omitempty" json:"id"`
 	MessageID         string             `bson:"message_id" json:"message_id"` // format: {chat_id}_{message_id}
 	Classification    Classification     `bson:"classification" json:"classification"`
@@ -101,6 +105,7 @@ type ExtractedMessage struct {
 	ExtractedPrices   []ExtractedPrice   `bson:"extracted_prices" json:"extracted_prices"`
 	SellerMetadata    map[string]string  `bson:"seller_metadata,omitempty" json:"seller_metadata,omitempty"`
 	Location          *ExtractedLocation `bson:"location,omitempty" json:"location,omitempty"`
+	BrandedKnown      bool               `bson:"branded_known" json:"branded_known"`
 	Branded           bool               `bson:"branded" json:"branded"`
 	Confidence        float64            `bson:"confidence" json:"confidence"`
 	ExtractionVersion int                `bson:"extraction_version" json:"extraction_version"`

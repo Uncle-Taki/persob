@@ -209,14 +209,22 @@ func (a *LinkedDiscussionAdapter) AdaptMessage(ctx context.Context, e tg.Entitie
 		if replyHeader.ReplyToMsgID != 0 {
 			id := int64(replyHeader.ReplyToMsgID)
 			replyToID = &id
-			linkedPostID = &id
+
 		}
 		if replyHeader.ReplyToTopID != 0 {
 			top := int64(replyHeader.ReplyToTopID)
-			linkedPostID = &top
+			_ = top
 		}
 	}
 
+	// A reply ID belongs to the discussion namespace. Only an authoritative
+	// forwarded channel header can establish the original channel post here.
+	if header, forwarded := msg.GetFwdFrom(); forwarded && header.ChannelPost != 0 {
+		if channel, ok := header.FromID.(*tg.PeerChannel); ok && source != nil && extractPeerID(channel) == source.TelegramPeerID {
+			post := int64(header.ChannelPost)
+			linkedPostID = &post
+		}
+	}
 	peerID := extractPeerID(msg.PeerID)
 	sourceID := ""
 	if source != nil {

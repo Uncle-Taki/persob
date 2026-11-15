@@ -129,7 +129,7 @@ func TestBasicGroupAdapterDoesNotTreatChannelOrMissingSenderAsAUser(t *testing.T
 	}
 }
 
-func TestLinkedDiscussionAdapterAssociatesPostID(t *testing.T) {
+func TestLinkedDiscussionReplyDoesNotFabricateOriginalPostID(t *testing.T) {
 	adapter := telegram.GetIngestionAdapter(domain.TelegramSourceTypeBroadcastChannel, true)
 
 	linkedPostExpected := int64(1234)
@@ -159,11 +159,11 @@ func TestLinkedDiscussionAdapterAssociatesPostID(t *testing.T) {
 		t.Fatalf("AdaptMessage error: %v", err)
 	}
 
-	if domainMsg.LinkedPostID == nil {
-		t.Fatalf("Expected LinkedPostID to be preserved")
+	if domainMsg.LinkedPostID != nil {
+		t.Fatalf("discussion reply must not fabricate a channel post: %v", domainMsg.LinkedPostID)
 	}
-	if *domainMsg.LinkedPostID != linkedPostExpected {
-		t.Errorf("LinkedPostID = %d, want %d", *domainMsg.LinkedPostID, linkedPostExpected)
+	if domainMsg.ReplyToMessageID == nil || *domainMsg.ReplyToMessageID != linkedPostExpected {
+		t.Fatal("discussion reply identity must be retained")
 	}
 	if domainMsg.SourceType != "linked_discussion" {
 		t.Errorf("SourceType = %s, want linked_discussion", domainMsg.SourceType)

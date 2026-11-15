@@ -2,6 +2,7 @@ package matching
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 
 	"github.com/google/uuid"
@@ -59,6 +60,9 @@ func (m *Matcher) MatchSellerProduct(ctx context.Context, extracted *domain.Extr
 
 	// Level 2: Exact Normalized Name match
 	for _, p := range products {
+		if !checkVariantMatch(extracted.Variant, p) {
+			continue
+		}
 		pNorm := strings.ToLower(nlp.CleanSearchKey(p.Name))
 		if pNorm != "" && (pNorm == normName || p.NormalizedName == normName) {
 			return &MatchResult{
@@ -75,9 +79,12 @@ func (m *Matcher) MatchSellerProduct(ctx context.Context, extracted *domain.Extr
 
 	// Level 4: Product Aliases match
 	for _, p := range products {
+		if !checkVariantMatch(extracted.Variant, p) {
+			continue
+		}
 		for _, alias := range p.Aliases {
 			normAlias := strings.ToLower(nlp.CleanSearchKey(alias.Alias))
-			if normAlias != "" && (normAlias == normName || strings.Contains(normName, normAlias)) {
+			if normAlias != "" && (normAlias == normName) {
 				return &MatchResult{
 					Matched:        true,
 					ProductID:      p.ID,
@@ -94,10 +101,13 @@ func (m *Matcher) MatchSellerProduct(ctx context.Context, extracted *domain.Extr
 	// Level 3: Brand and Model Matching
 	if normBrand != "" && normModel != "" {
 		for _, p := range products {
+			if !checkVariantMatch(extracted.Variant, p) {
+				continue
+			}
 			pBrand := strings.ToLower(nlp.CleanSearchKey(p.Brand))
 			pModel := strings.ToLower(nlp.CleanSearchKey(p.Model))
 
-			if pBrand == normBrand && (pModel == normModel || strings.Contains(normModel, pModel) || strings.Contains(pModel, normModel)) {
+			if pBrand == normBrand && (pModel != "" && pModel == normModel) {
 				return &MatchResult{
 					Matched:        true,
 					ProductID:      p.ID,
@@ -113,6 +123,9 @@ func (m *Matcher) MatchSellerProduct(ctx context.Context, extracted *domain.Extr
 
 	// Level 5: Configurable keyword matching
 	for _, p := range products {
+		if !checkVariantMatch(extracted.Variant, p) {
+			continue
+		}
 		keywords := strings.Fields(strings.ToLower(nlp.CleanSearchKey(p.Name)))
 		if len(keywords) >= 2 {
 			allFound := true
@@ -147,7 +160,17 @@ func checkVariantMatch(variant string, product domain.Product) bool {
 	if variant == "" {
 		return true // No variant specified
 	}
-	// Check if product attributes contain storage or variant
-	attrs := string(product.Attributes)
-	return strings.Contains(strings.ToLower(attrs), strings.ToLower(variant))
+	// An unconstrained catalog product has no conflicting variant. A catalog
+	// that explicitly lists variants must contain the requested exact value.
+	var attrs map[string]any
+	if json.Unmarshal(product.Attributes, &attrs) != nil {
+		return true
+	}
+	_, storage := attrs["storage"]
+	_, variants := attrs["variants"]
+	_, v := attrs["variant"]
+	if !storage && !variants && !v {
+		return true
+	}
+	return strings.Contains(strings.ToLower(string(product.Attributes)), "\""+strings.ToLower(variant)+"\"")
 }

@@ -162,3 +162,23 @@ func (db *DB) EnsureIndexes(ctx context.Context) error {
 
 	return nil
 }
+
+// ConfigureRetention is explicit opt-in: zero preserves existing data. A dedicated
+// expires_at field avoids changing the existing query indexes.
+func (db *DB) ConfigureRetention(ctx context.Context, days int) error {
+	if days <= 0 {
+		return nil
+	}
+	for _, name := range []string{"telegram_messages", "extracted_messages", "llm_extractions", "conversation_messages", "conversation_events", "telegram_updates"} {
+		coll := db.Database.Collection(name)
+		_, err := coll.UpdateMany(ctx, bson.M{"expires_at": bson.M{"$exists": false}}, mongo.Pipeline{bson.D{{Key: "$set", Value: bson.M{"expires_at": bson.M{"$dateAdd": bson.M{"startDate": bson.M{"$ifNull": bson.A{"$received_at", bson.M{"$ifNull": bson.A{"$created_at", bson.M{"$ifNull": bson.A{"$sent_at", "$$NOW"}}}}}}, "unit": "day", "amount": days}}}}}})
+		if err != nil {
+			return err
+		}
+		_, err = coll.Indexes().CreateOne(ctx, mongo.IndexModel{Keys: bson.D{{Key: "expires_at", Value: 1}}, Options: options.Index().SetExpireAfterSeconds(0).SetName("retention_expiry")})
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}

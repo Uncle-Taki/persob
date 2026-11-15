@@ -50,7 +50,7 @@ func (e *Extractor) ExtractFromMessage(msg *domain.TelegramMessage) *domain.Extr
 		Confidence:        clsRes.Confidence,
 		ExtractionVersion: 1,
 		CreatedAt:         time.Now(),
-		Branded:           true,
+		Branded:           false,
 		SellerMetadata: map[string]string{
 			"sender_id":       strconv.FormatInt(msg.SenderID, 10),
 			"sender_username": msg.SenderUsername,
@@ -214,7 +214,7 @@ func (e *Extractor) extractProductDetails(normText, originalText string) *domain
 	return &domain.ExtractedProduct{
 		Name:         name,
 		Brand:        brand,
-		Manufacturer: brand,
+		Manufacturer: "",
 		Model:        model,
 		Variant:      variant,
 		Condition:    condition,

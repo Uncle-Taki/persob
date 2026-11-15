@@ -15,8 +15,11 @@ test-race:
 	go test -race -v ./...
 
 lint:
-	gofmt -s -w .
+	test -z "$$(gofmt -l .)"
 	go vet ./...
+
+format:
+	gofmt -w .
 
 run: build
 	./bin/$(BINARY_NAME) all
@@ -28,7 +31,7 @@ docker-up:
 	docker compose up --build
 
 docker-down:
-	docker compose down -v
+	docker compose down
 
 clean:
 	rm -rf bin/

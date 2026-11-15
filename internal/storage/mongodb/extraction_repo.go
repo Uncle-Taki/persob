@@ -27,8 +27,23 @@ func (r *ExtractionRepo) SaveExtraction(ctx context.Context, ext *domain.Extract
 		ext.CreatedAt = time.Now()
 	}
 	filter := bson.M{"message_id": ext.MessageID}
-	opts := options.Replace().SetUpsert(true)
-	_, err := r.coll.ReplaceOne(ctx, filter, ext, opts)
+	raw, err := bson.Marshal(ext)
+	if err != nil {
+		return err
+	}
+	var fields bson.M
+	if err = bson.Unmarshal(raw, &fields); err != nil {
+		return err
+	}
+	updates := bson.M{}
+	for key, value := range fields {
+		if key == "_id" {
+			continue
+		}
+		updates[key] = bson.M{"$cond": bson.A{bson.M{"$gte": bson.A{ext.SourceRevisionAt, bson.M{"$ifNull": bson.A{"$source_revision_at", time.Unix(0, 0)}}}}, bson.M{"$literal": value}, "$" + key}}
+	}
+	opts := options.Update().SetUpsert(true)
+	_, err = r.coll.UpdateOne(ctx, filter, mongo.Pipeline{bson.D{{Key: "$set", Value: updates}}}, opts)
 	if err != nil {
 		return fmt.Errorf("upsert extraction result: %w", err)
 	}

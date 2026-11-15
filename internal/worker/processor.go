@@ -14,13 +14,15 @@ import (
 	"github.com/perso/perso-mind/internal/extraction"
 	"github.com/perso/perso-mind/internal/llm"
 	"github.com/perso/perso-mind/internal/matching"
-	"github.com/perso/perso-mind/internal/nlp"
+
 	"github.com/perso/perso-mind/internal/queue"
 	"github.com/perso/perso-mind/internal/storage/mongodb"
 	"github.com/perso/perso-mind/internal/storage/postgres"
 )
 
 type MessageProcessor struct {
+	sourceRepo *postgres.TelegramSourceRepo
+
 	cfg                *config.Config
 	messagesRepo       *mongodb.MessagesRepo
 	extractionRepo     *mongodb.ExtractionRepo
@@ -82,29 +84,47 @@ func (p *MessageProcessor) ProcessStreamMessage(ctx context.Context, msgID strin
 	)
 
 	// 1. Fetch or construct TelegramMessage domain object
-	msg, err := p.messagesRepo.GetByChatAndMessageID(ctx, payload.TelegramChatID, payload.TelegramMessageID)
-	if err != nil || msg == nil {
-		msg = &domain.TelegramMessage{
-			TelegramChatID:    payload.TelegramChatID,
-			TelegramMessageID: payload.TelegramMessageID,
-			ChatTitle:         payload.ChatTitle,
-			ChatUsername:      payload.ChatUsername,
-			SenderID:          payload.SenderID,
-			SenderUsername:    payload.SenderUsername,
-			SenderDisplayName: payload.SenderDisplayName,
-			MessageText:       payload.MessageText,
-			MessageDate:       payload.MessageDate,
-			ReceivedAt:        payload.ReceivedAt,
-			NormalizedText:    nlp.Normalize(payload.MessageText),
-			ProcessingStatus:  domain.ProcessingStatusProcessing,
+	msg := payload.Message
+	if msg == nil {
+		var err error
+		msg, err = p.messagesRepo.GetByChatAndMessageID(ctx, payload.TelegramChatID, payload.TelegramMessageID)
+		if err != nil {
+			return fmt.Errorf("load legacy queued message: %w", err)
 		}
+		if msg == nil {
+			return fmt.Errorf("legacy queued message is missing")
+		}
+	}
+	if msg.Deleted {
+		revision := msg.MessageDate
+		if msg.EditedDate != nil {
+			revision = *msg.EditedDate
+		}
+		if err := p.offerRepo.RetireMissing(ctx, fmt.Sprintf("%d_%d", msg.TelegramChatID, msg.TelegramMessageID), revision, []string{}); err != nil {
+			return err
+		}
+		return p.messagesRepo.UpdateProcessingStatus(ctx, msg.TelegramChatID, msg.TelegramMessageID, domain.ProcessingStatusProcessed)
 	}
 
 	// 2. Perform deterministic classification and extraction
 	extracted := p.extractor.ExtractFromMessage(msg)
 
 	// 3. Optional LLM enrichment if enabled & permitted
-	if p.cfg.LLMEnabled && p.llmProvider != nil {
+	allowed := false
+	if p.cfg.LLMEnabled && p.sourceRepo != nil && len([]rune(msg.MessageText)) <= 6000 {
+		var permissionErr error
+		allowed, permissionErr = p.sourceRepo.AllowExternalProcessing(ctx, msg.SourceID, *p.cfg.OwnerID())
+		if permissionErr != nil {
+			return permissionErr
+		}
+		if allowed {
+			allowed, permissionErr = p.sourceRepo.ReserveLLMRequest(ctx, 30)
+			if permissionErr != nil {
+				return permissionErr
+			}
+		}
+	}
+	if allowed && p.llmProvider != nil {
 		slog.Debug("invoking llm extraction provider for message", "chat_id", msg.TelegramChatID, "msg_id", msg.TelegramMessageID)
 		llmResp, llmErr := p.llmProvider.ExtractMarketplaceInfo(ctx, msg.MessageText)
 		if llmErr != nil {
@@ -149,6 +169,10 @@ func (p *MessageProcessor) ProcessStreamMessage(ctx context.Context, msgID strin
 		}
 	}
 
+	extracted.SourceRevisionAt = msg.MessageDate
+	if msg.EditedDate != nil {
+		extracted.SourceRevisionAt = *msg.EditedDate
+	}
 	// 4. Save extracted result to MongoDB
 	if err := p.extractionRepo.SaveExtraction(ctx, extracted); err != nil {
 		return fmt.Errorf("save extracted message: %w", err)
@@ -166,10 +190,17 @@ func (p *MessageProcessor) ProcessStreamMessage(ctx context.Context, msgID strin
 			"chat_id", msg.TelegramChatID, "msg_id", msg.TelegramMessageID)
 	}
 
+	if extracted.Classification != domain.ClassificationSeller {
+		revision := msg.MessageDate
+		if msg.EditedDate != nil {
+			revision = *msg.EditedDate
+		}
+		if err := p.offerRepo.RetireMissing(ctx, fmt.Sprintf("%d_%d", msg.TelegramChatID, msg.TelegramMessageID), revision, []string{}); err != nil {
+			return err
+		}
+	}
 	// 6. Mark processing status as processed in MongoDB
-	_ = p.messagesRepo.UpdateProcessingStatus(ctx, msg.TelegramChatID, msg.TelegramMessageID, domain.ProcessingStatusProcessed)
-
-	return nil
+	return p.messagesRepo.UpdateProcessingStatus(ctx, msg.TelegramChatID, msg.TelegramMessageID, domain.ProcessingStatusProcessed)
 }
 
 func (p *MessageProcessor) handleSellerAdvertisement(
@@ -197,7 +228,7 @@ func (p *MessageProcessor) handleSellerAdvertisement(
 			TotalOffers: len(ext.ExtractedProducts),
 		}
 		if err := p.sellerProfileRepo.Upsert(ctx, sellerProfile); err != nil {
-			slog.Warn("failed to upsert seller profile", "seller_id", msg.SenderID, "error", err)
+			return fmt.Errorf("upsert seller profile: %w", err)
 		}
 
 		if prof, err := p.sellerProfileRepo.GetByID(ctx, msg.SenderID); err == nil && prof != nil {
@@ -208,15 +239,26 @@ func (p *MessageProcessor) handleSellerAdvertisement(
 	sourceMsgID := fmt.Sprintf("%d_%d", msg.TelegramChatID, msg.TelegramMessageID)
 
 	// 2. Process every extracted product (Multi-product support)
-	for i, extProd := range ext.ExtractedProducts {
+	items := extraction.ListingItems(msg, ext)
+	keys := []string{}
+	revision := msg.MessageDate
+	if msg.EditedDate != nil {
+		revision = *msg.EditedDate
+	}
+	if revision.IsZero() {
+		revision = msg.ReceivedAt
+	}
+	for _, item := range items {
+		extProd := item.Product
+		keys = append(keys, item.Key)
 		// Match against catalog products
 		matchRes, err := p.matcher.MatchSellerProduct(ctx, &extProd)
 		if err != nil {
-			slog.Warn("matching seller product error", "error", err)
+			return fmt.Errorf("match catalog: %w", err)
 		}
 
 		var productID *uuid.UUID
-		if matchRes != nil && matchRes.Matched {
+		if matchRes != nil && matchRes.Matched && matchRes.VariantMatched {
 			productID = &matchRes.ProductID
 			slog.Info("matched seller product to catalog",
 				"product_name", matchRes.ProductName,
@@ -231,14 +273,8 @@ func (p *MessageProcessor) handleSellerAdvertisement(
 		var priceRaw string
 		var priceConfidence float64
 
-		if i < len(ext.ExtractedPrices) {
-			pr := ext.ExtractedPrices[i]
-			priceAmount = &pr.Amount
-			priceCurrency = pr.Currency
-			priceRaw = pr.Raw
-			priceConfidence = pr.Confidence
-		} else if len(ext.ExtractedPrices) > 0 {
-			pr := ext.ExtractedPrices[0]
+		if item.Price != nil {
+			pr := item.Price
 			priceAmount = &pr.Amount
 			priceCurrency = pr.Currency
 			priceRaw = pr.Raw
@@ -246,7 +282,8 @@ func (p *MessageProcessor) handleSellerAdvertisement(
 		}
 
 		offer := &domain.Offer{
-			ID:                   uuid.New(),
+			ID:            uuid.New(),
+			SourceItemKey: item.Key, SourceRevisionAt: revision, SourcePublishedAt: &msg.MessageDate, OwnerID: p.cfg.OwnerID(),
 			ProductID:            productID,
 			SourceMessageID:      sourceMsgID,
 			SellerID:             msg.SenderID,
@@ -260,6 +297,7 @@ func (p *MessageProcessor) handleSellerAdvertisement(
 			PriceRaw:             priceRaw,
 			PriceConfidence:      priceConfidence,
 			Branded:              ext.Branded,
+			BrandedKnown:         ext.BrandedKnown,
 			SellerCity:           city,
 			SellerArea:           area,
 			SellerLocationText:   locText,
@@ -267,17 +305,31 @@ func (p *MessageProcessor) handleSellerAdvertisement(
 			ExtractionConfidence: ext.Confidence,
 		}
 
+		if matchRes != nil && extProd.Variant != "" {
+			value := matchRes.VariantMatched
+			offer.VariantMatch = &value
+		}
 		// Upsert offer into PostgreSQL
 		if err := p.offerRepo.Create(ctx, offer); err != nil {
 			return fmt.Errorf("persist seller offer: %w", err)
 		}
 
+		if !offer.Applied {
+			continue
+		}
 		slog.Info("persisted seller offer to postgresql", "offer_id", offer.ID, "source_id", sourceMsgID, "product", extProd.Name)
 
 		// 3. Match against buyer interests and store offer_match_results
 		if productID != nil && p.matchResultRepo != nil && p.interestRepo != nil {
-			if interests, err := p.interestRepo.FindInterestsByProductID(ctx, *productID); err == nil {
+			interests, err := p.interestRepo.FindInterestsByProductID(ctx, *productID)
+			if err != nil {
+				return fmt.Errorf("load purchase interests: %w", err)
+			}
+			{
 				for _, interest := range interests {
+					if interest.UserID != *p.cfg.OwnerID() {
+						continue
+					}
 					score := 85.0
 					if offer.Condition == domain.ConditionNew || offer.Condition == domain.ConditionLikeNew {
 						score += 10.0
@@ -303,30 +355,62 @@ func (p *MessageProcessor) handleSellerAdvertisement(
 						CreatedAt:           time.Now().UTC(),
 					}
 					if err := p.matchResultRepo.Create(ctx, matchResult); err != nil {
-						slog.Warn("failed to create offer match result", "offer_id", offer.ID, "error", err)
+						return fmt.Errorf("persist offer match: %w", err)
 					}
 				}
 			}
 		}
 
 		// 5. Detect missing fields for conversation management (if not opted out)
-		if !isOptedOut {
+		if !isOptedOut && productID != nil && p.interestRepo != nil {
+			eligible, err := p.interestRepo.FindInterestedUsers(ctx, *productID)
+			if err != nil {
+				return err
+			}
+			hasOwner := false
+			for _, user := range eligible {
+				if user == *p.cfg.OwnerID() {
+					hasOwner = true
+				}
+			}
+			if !hasOwner {
+				continue
+			}
 			var missingFields []domain.MissingField
-			if offer.PriceAmount == nil || *offer.PriceAmount == 0 {
-				missingFields = append(missingFields, domain.FieldPrice)
+			fields := p.cfg.ConversationFields
+			if len(fields) == 0 {
+				fields = []domain.MissingField{domain.FieldPrice, domain.FieldCity, domain.FieldTehranArea}
 			}
-			if offer.SellerCity == "" {
-				missingFields = append(missingFields, domain.FieldCity)
-			}
-			if offer.SellerCity == "تهران" && offer.SellerArea == "" {
-				missingFields = append(missingFields, domain.FieldTehranArea)
+			for _, field := range fields {
+				missing := false
+				switch field {
+				case domain.FieldPrice:
+					missing = offer.PriceAmount == nil || *offer.PriceAmount == 0
+				case domain.FieldCondition:
+					missing = offer.Condition == domain.ConditionUnknown
+				case domain.FieldBranded:
+					missing = !offer.BrandedKnown
+				case domain.FieldManufacturer:
+					missing = offer.Manufacturer == ""
+				case domain.FieldWarranty:
+					missing = !offer.WarrantyKnown
+				case domain.FieldExpiration:
+					missing = offer.ExpirationDate == nil
+				case domain.FieldCity:
+					missing = offer.SellerCity == ""
+				case domain.FieldTehranArea:
+					missing = offer.SellerCity == "تهران" && offer.SellerArea == ""
+				}
+				if missing {
+					missingFields = append(missingFields, field)
+				}
 			}
 
 			// Initialize conversation if missing fields exist
 			if len(missingFields) > 0 && p.convManager != nil && msg.SenderID != 0 {
 				_, err := p.convManager.InitConversation(ctx, offer, missingFields)
 				if err != nil {
-					slog.Warn("failed to initialize conversation for offer", "offer_id", offer.ID, "error", err)
+					return fmt.Errorf("initialize conversation: %w", err)
 				}
 			}
 		}
@@ -341,5 +425,7 @@ func (p *MessageProcessor) handleSellerAdvertisement(
 		}
 	}
 
-	return nil
+	return p.offerRepo.RetireMissing(ctx, sourceMsgID, revision, keys)
 }
+
+func (p *MessageProcessor) SetSourceRepo(r *postgres.TelegramSourceRepo) { p.sourceRepo = r }

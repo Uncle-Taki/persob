@@ -10,6 +10,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/google/uuid"
+	"github.com/gotd/td/tg"
 	"github.com/perso/perso-mind/internal/analytics"
 	"github.com/perso/perso-mind/internal/api"
 	"github.com/perso/perso-mind/internal/api/handlers"
@@ -22,6 +24,7 @@ import (
 	"github.com/perso/perso-mind/internal/storage/postgres"
 	"github.com/perso/perso-mind/internal/telegram"
 	"github.com/perso/perso-mind/internal/worker"
+	"golang.org/x/sync/errgroup"
 )
 
 func main() {
@@ -41,6 +44,13 @@ func main() {
 		cmd = os.Args[1]
 	}
 
+	if cmd == "login" {
+		if err := telegram.Login(ctx, cfg); err != nil {
+			slog.Error("Telegram login failed", "error", err)
+			os.Exit(1)
+		}
+		return
+	}
 	slog.Info("starting Perso Marketplace Platform", "command", cmd, "env", cfg.Environment)
 
 	// Connect PostgreSQL
@@ -74,6 +84,10 @@ func main() {
 		_ = mongoDB.Close(closeCtx)
 	}()
 
+	if err := mongoDB.ConfigureRetention(ctx, cfg.RetentionDays); err != nil {
+		slog.Error("retention configuration", "error", err)
+		os.Exit(1)
+	}
 	// Connect Redis
 	redisClient, err := queue.Connect(ctx, cfg.RedisAddr, cfg.RedisPassword, cfg.RedisDB)
 	if err != nil {
@@ -88,7 +102,7 @@ func main() {
 	}
 
 	// Repositories
-	userRepo := postgres.NewUserRepo(pgDB)
+
 	productRepo := postgres.NewProductRepo(pgDB)
 	interestRepo := postgres.NewInterestRepo(pgDB)
 	watchSourceRepo := postgres.NewWatchSourceRepo(pgDB)
@@ -107,8 +121,19 @@ func main() {
 	mongoConvRepo := mongodb.NewConversationRepo(mongoDB)
 	jobsRepo := mongodb.NewJobsRepo(mongoDB)
 
-	// Seed or ensure default demo buyer user exists
-	_, _ = userRepo.GetOrCreateDefaultUser(ctx)
+	// Initial release has one explicit operator/workspace. Legacy unowned data
+	// is adopted by that operator on upgrade; no client chooses its identity.
+	owner := cfg.OwnerID()
+	if _, err := pgDB.Pool.Exec(ctx, `INSERT INTO users(id,username,role) VALUES($1,$2,'operator') ON CONFLICT(id) DO NOTHING`, *owner, "operator_"+owner.String()); err != nil {
+		slog.Error("operator initialization", "error", err)
+		os.Exit(1)
+	}
+	for _, table := range []string{"offers", "conversations"} {
+		if _, err := pgDB.Pool.Exec(ctx, "UPDATE "+table+" SET owner_id=$1 WHERE owner_id IS NULL", *owner); err != nil {
+			slog.Error("legacy owner migration", "error", err)
+			os.Exit(1)
+		}
+	}
 
 	// Queue Producer
 	producer := queue.NewProducer(redisClient, cfg.RedisStreamKey)
@@ -127,20 +152,10 @@ func main() {
 		llmProvider = llm.NewMockProvider()
 	}
 
-	// Collector & Telegram
-	collector, err := telegram.NewCollector(cfg, watchSourceRepo, telegramSourceRepo, messagesRepo, updatesRepo, producer)
-	if err != nil {
-		slog.Error("fatal collector init error", "error", err)
-		os.Exit(1)
-	}
-
-	var tgClient telegram.TelegramClient
-	if collector.MockClient() != nil {
-		tgClient = collector.MockClient()
-	}
+	gateway := telegram.NewGatewayClient(cfg.GatewayURL, cfg.GatewayToken)
 
 	// Conversation Manager
-	convManager := conversation.NewManager(cfg, convRepo, mongoConvRepo, auditRepo, tgClient, llmProvider)
+	convManager := conversation.NewManager(cfg, convRepo, mongoConvRepo, auditRepo, nil, llmProvider)
 	convManager.SetSellerRepo(sellerProfileRepo)
 
 	// Worker Processor
@@ -150,20 +165,51 @@ func main() {
 		convManager, analyticsEngine, llmProvider,
 	)
 
-	// Dispatch commands
-	switch cmd {
-	case "api":
-		runAPIServer(ctx, cfg, pgDB, mongoDB, redisClient, interestRepo, productRepo, watchSourceRepo, telegramSourceRepo, matchResultRepo, collector.Resolver(), offerRepo, convRepo, mongoConvRepo, convManager, analyticsRepo, messagesRepo, analyticsEngine)
-	case "collector":
-		runCollector(ctx, collector)
-	case "worker":
-		runWorker(ctx, cfg, redisClient, processor)
-	case "all":
-		go runCollector(ctx, collector)
-		go runWorker(ctx, cfg, redisClient, processor)
-		runAPIServer(ctx, cfg, pgDB, mongoDB, redisClient, interestRepo, productRepo, watchSourceRepo, telegramSourceRepo, matchResultRepo, collector.Resolver(), offerRepo, convRepo, mongoConvRepo, convManager, analyticsRepo, messagesRepo, analyticsEngine)
-	default:
+	processor.SetSourceRepo(telegramSourceRepo)
+	// Only the gateway constructs or locks an MTProto session.
+	var collector *telegram.Collector
+	if cmd == "collector" || cmd == "gateway" || cmd == "all" {
+		collector, err = telegram.NewCollector(cfg, watchSourceRepo, telegramSourceRepo, messagesRepo, updatesRepo, producer)
+		if err != nil {
+			slog.Error("gateway initialization", "error", err)
+			os.Exit(1)
+		}
+		collector.SetReplyHandler(func(ctx context.Context, msg *tg.Message) error {
+			seller := int64(0)
+			if p, ok := msg.FromID.(*tg.PeerUser); ok {
+				seller = p.UserID
+			}
+			if seller == 0 {
+				return nil
+			}
+			conv, err := convRepo.FindActiveBySeller(ctx, seller)
+			if err != nil || conv == nil {
+				return err
+			}
+			_, err = convManager.HandleIncomingSellerMessage(postgres.WithInbound(ctx, seller, int64(msg.ID), msg.Message), conv.ID, msg.Message)
+			return err
+		})
+		collector.SetMarketplaceRepo(pgDB)
+		collector.SetRetentionHandler(func(ctx context.Context) error { return mongoDB.ConfigureRetention(ctx, cfg.RetentionDays) })
+	}
+	group, runCtx := errgroup.WithContext(ctx)
+	if cmd == "collector" || cmd == "gateway" || cmd == "all" {
+		group.Go(func() error { return collector.RunGateway(runCtx) })
+	}
+	if cmd == "worker" || cmd == "all" {
+		group.Go(func() error { return runWorker(runCtx, cfg, redisClient, processor) })
+	}
+	if cmd == "api" || cmd == "all" {
+		group.Go(func() error {
+			return runAPIServer(runCtx, cfg, pgDB, mongoDB, redisClient, interestRepo, productRepo, watchSourceRepo, telegramSourceRepo, matchResultRepo, gateway, offerRepo, convRepo, mongoConvRepo, convManager, analyticsRepo, messagesRepo, analyticsEngine)
+		})
+	}
+	if cmd != "api" && cmd != "worker" && cmd != "collector" && cmd != "gateway" && cmd != "all" {
 		slog.Error("unknown command", "command", cmd)
+		os.Exit(1)
+	}
+	if err = group.Wait(); err != nil && ctx.Err() == nil {
+		slog.Error("service failed", "error", err)
 		os.Exit(1)
 	}
 }
@@ -179,7 +225,7 @@ func runAPIServer(
 	watchSourceRepo *postgres.WatchSourceRepo,
 	telegramSourceRepo *postgres.TelegramSourceRepo,
 	matchResultRepo *postgres.MatchResultRepo,
-	resolver *telegram.Resolver,
+	resolver telegram.SourceResolver,
 	offerRepo *postgres.OfferRepo,
 	convRepo *postgres.ConversationRepo,
 	mongoConvRepo *mongodb.ConversationRepo,
@@ -187,7 +233,7 @@ func runAPIServer(
 	analyticsRepo *postgres.AnalyticsRepo,
 	messagesRepo *mongodb.MessagesRepo,
 	analyticsEngine *analytics.Engine,
-) {
+) error {
 	healthH := handlers.NewHealthHandler(pgDB, mongoDB, redisClient)
 	interestH := handlers.NewInterestHandler(interestRepo, productRepo)
 	watchSourceH := handlers.NewWatchSourceHandler(watchSourceRepo)
@@ -198,7 +244,7 @@ func runAPIServer(
 	analyticsH := handlers.NewAnalyticsHandler(analyticsRepo, offerRepo, productRepo, messagesRepo, analyticsEngine)
 
 	router := api.NewRouter(&api.Handlers{
-		AllowDemoAuth:         cfg.DemoAuthEnabled,
+		OutreachEnabled: cfg.OutreachEnabled, AllowDemoAuth: cfg.DemoAuthEnabled, APIToken: cfg.APIToken, OperatorUserID: *cfg.OwnerID(), GatewayHandler: telegram.NewGatewayClient(cfg.GatewayURL, cfg.GatewayToken).StatusHandler(),
 		HealthHandler:         healthH,
 		InterestHandler:       interestH,
 		WatchSourceHandler:    watchSourceH,
@@ -218,42 +264,32 @@ func runAPIServer(
 		IdleTimeout:  60 * time.Second,
 	}
 
+	errors := make(chan error, 1)
 	go func() {
-		slog.Info("HTTP REST API server listening", "addr", addr)
-		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			slog.Error("HTTP server error", "error", err)
+		err := srv.ListenAndServe()
+		if err == http.ErrServerClosed {
+			err = nil
 		}
+		errors <- err
 	}()
-
-	<-ctx.Done()
-	slog.Info("shutting down HTTP REST API server...")
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	select {
+	case err := <-errors:
+		return err
+	case <-ctx.Done():
+	}
+	shutdown, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	_ = srv.Shutdown(shutdownCtx)
-	slog.Info("HTTP server stopped gracefully")
+	return srv.Shutdown(shutdown)
 }
-
-func runCollector(ctx context.Context, collector *telegram.Collector) {
-	slog.Info("starting telegram ingestion service...")
-	if err := collector.Start(ctx); err != nil && err != context.Canceled {
-		slog.Error("collector encountered fatal error", "error", err)
+func runWorker(ctx context.Context, cfg *config.Config, client *queue.Client, p *worker.MessageProcessor) error {
+	group, runCtx := errgroup.WithContext(ctx)
+	for i := 0; i < cfg.WorkerConcurrency; i++ {
+		name := fmt.Sprintf("%s-%s-%d", cfg.RedisConsumerName, uuid.NewString(), i)
+		group.Go(func() error {
+			return queue.NewConsumer(client, cfg.RedisStreamKey, cfg.RedisConsumerGroup, name, cfg.BatchSize).Start(runCtx, p.ProcessStreamMessage)
+		})
 	}
-}
-
-func runWorker(ctx context.Context, cfg *config.Config, redisClient *queue.Client, processor *worker.MessageProcessor) {
-	slog.Info("starting message processing worker...", "concurrency", cfg.WorkerConcurrency)
-
-	consumer := queue.NewConsumer(
-		redisClient,
-		cfg.RedisStreamKey,
-		cfg.RedisConsumerGroup,
-		cfg.RedisConsumerName,
-		cfg.BatchSize,
-	)
-
-	if err := consumer.Start(ctx, processor.ProcessStreamMessage); err != nil && err != context.Canceled {
-		slog.Error("worker consumer encountered error", "error", err)
-	}
+	return group.Wait()
 }
 
 func setupLogger(levelStr string) {

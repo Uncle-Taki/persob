@@ -34,6 +34,20 @@ const (
 )
 
 type Offer struct {
+	VariantMatch *bool `json:"variant_match,omitempty"`
+
+	WarrantyKnown bool `json:"warranty_known"`
+
+	SourceItemKey     string     `json:"source_item_key"`
+	SourceRevisionAt  time.Time  `json:"source_revision_at"`
+	SourcePublishedAt *time.Time `json:"source_published_at,omitempty"`
+	ContentHash       string     `json:"-"`
+	OwnerID           *uuid.UUID `json:"owner_id,omitempty"`
+	BrandedKnown      bool       `json:"branded_known"`
+	ListingExpiresAt  *time.Time `json:"listing_expires_at,omitempty"`
+	WarrantyUntil     *time.Time `json:"warranty_until,omitempty"`
+	Applied           bool       `json:"-"`
+
 	ID                   uuid.UUID     `json:"id"`
 	ProductID            *uuid.UUID    `json:"product_id,omitempty"`
 	SourceMessageID      string        `json:"source_message_id"`

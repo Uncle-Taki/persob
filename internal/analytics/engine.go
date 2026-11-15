@@ -47,8 +47,8 @@ func (e *Engine) CalculateProductStatistics(ctx context.Context, productID uuid.
 	// Extract confirmed Toman prices (excluding zero / nil / unconfirmed)
 	var prices []int64
 	for _, o := range offers {
-		if o.PriceAmount != nil && *o.PriceAmount > 0 && o.PriceCurrency == domain.CurrencyToman {
-			prices = append(prices, *o.PriceAmount)
+		if o.PriceAmount != nil && *o.PriceAmount > 0 {
+			prices = append(prices, domain.TomanAmount(*o.PriceAmount, o.PriceCurrency))
 		}
 	}
 
@@ -131,21 +131,29 @@ func (e *Engine) ScoreAndRankOffers(offers []domain.Offer, medianPrice int64, so
 		}
 	}
 
+	SortScoredOffers(scored, sortBy)
+	return scored
+}
+
+func SortScoredOffers(scored []domain.ScoredOffer, sortBy domain.SortBy) {
 	// Sort
 	switch sortBy {
 	case domain.SortByBestOffer:
 		sort.Slice(scored, func(i, j int) bool {
+			if scored[i].ScoreBreakdown.FinalScore == scored[j].ScoreBreakdown.FinalScore {
+				return scored[i].Offer.ID.String() < scored[j].Offer.ID.String()
+			}
 			return scored[i].ScoreBreakdown.FinalScore > scored[j].ScoreBreakdown.FinalScore
 		})
 	case domain.SortByLowestPrice:
 		sort.Slice(scored, func(i, j int) bool {
 			p1 := int64(1<<62 - 1)
 			if scored[i].Offer.PriceAmount != nil {
-				p1 = *scored[i].Offer.PriceAmount
+				p1 = domain.TomanAmount(*scored[i].Offer.PriceAmount, scored[i].Offer.PriceCurrency)
 			}
 			p2 := int64(1<<62 - 1)
 			if scored[j].Offer.PriceAmount != nil {
-				p2 = *scored[j].Offer.PriceAmount
+				p2 = domain.TomanAmount(*scored[j].Offer.PriceAmount, scored[j].Offer.PriceCurrency)
 			}
 			return p1 < p2
 		})
@@ -153,10 +161,10 @@ func (e *Engine) ScoreAndRankOffers(offers []domain.Offer, medianPrice int64, so
 		sort.Slice(scored, func(i, j int) bool {
 			var p1, p2 int64
 			if scored[i].Offer.PriceAmount != nil {
-				p1 = *scored[i].Offer.PriceAmount
+				p1 = domain.TomanAmount(*scored[i].Offer.PriceAmount, scored[i].Offer.PriceCurrency)
 			}
 			if scored[j].Offer.PriceAmount != nil {
-				p2 = *scored[j].Offer.PriceAmount
+				p2 = domain.TomanAmount(*scored[j].Offer.PriceAmount, scored[j].Offer.PriceCurrency)
 			}
 			return p1 > p2
 		})
@@ -171,11 +179,13 @@ func (e *Engine) ScoreAndRankOffers(offers []domain.Offer, medianPrice int64, so
 	default:
 		// Default to Best Offer
 		sort.Slice(scored, func(i, j int) bool {
+			if scored[i].ScoreBreakdown.FinalScore == scored[j].ScoreBreakdown.FinalScore {
+				return scored[i].Offer.ID.String() < scored[j].Offer.ID.String()
+			}
 			return scored[i].ScoreBreakdown.FinalScore > scored[j].ScoreBreakdown.FinalScore
 		})
 	}
 
-	return scored
 }
 
 func filterOutliersIQR(prices []int64) []int64 {
@@ -260,12 +270,16 @@ func determinePriceTrend(offers []domain.Offer) string {
 		if o.PriceAmount == nil || *o.PriceAmount <= 0 {
 			continue
 		}
-		age := now.Sub(o.CreatedAt)
+		published := o.CreatedAt
+		if o.SourcePublishedAt != nil {
+			published = *o.SourcePublishedAt
+		}
+		age := now.Sub(published)
 		if age <= 48*time.Hour {
-			recentSum += *o.PriceAmount
+			recentSum += domain.TomanAmount(*o.PriceAmount, o.PriceCurrency)
 			recentCount++
 		} else {
-			olderSum += *o.PriceAmount
+			olderSum += domain.TomanAmount(*o.PriceAmount, o.PriceCurrency)
 			olderCount++
 		}
 	}

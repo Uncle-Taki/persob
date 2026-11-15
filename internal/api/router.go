@@ -2,6 +2,8 @@ package api
 
 import (
 	_ "embed"
+	"github.com/google/uuid"
+	"github.com/perso/perso-mind/internal/api/httputil"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
@@ -13,6 +15,12 @@ import (
 var openapiSpec []byte
 
 type Handlers struct {
+	OutreachEnabled bool
+
+	APIToken       string
+	OperatorUserID uuid.UUID
+	GatewayHandler http.Handler
+
 	// Demo identity is an explicit local-development opt-in, never authentication.
 	AllowDemoAuth         bool
 	HealthHandler         *handlers.HealthHandler
@@ -33,7 +41,15 @@ func NewRouter(h *Handlers) http.Handler {
 	r.Use(chimiddleware.RequestID)
 	r.Use(chimiddleware.RealIP)
 	r.Use(LoggingMiddleware)
-	r.Use(CORSMiddleware)
+	// The deployed frontend uses the same origin. No wildcard CORS credentials.
+	r.Use(chimiddleware.Timeout(60 * 1000000000))
+	r.Use(chimiddleware.Throttle(100))
+	r.Use(func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
+			next.ServeHTTP(w, r)
+		})
+	})
 
 	// Health and Readiness
 	r.Get("/health", h.HealthHandler.Health)
@@ -48,7 +64,17 @@ func NewRouter(h *Handlers) http.Handler {
 
 	// API v1 Routes
 	r.Route("/api/v1", func(r chi.Router) {
-		r.Use(AuthenticationMiddleware(h.AllowDemoAuth))
+		if h.APIToken != "" {
+			r.Use(TokenAuthenticationMiddleware(h.APIToken, h.OperatorUserID))
+		} else {
+			r.Use(AuthenticationMiddleware(h.AllowDemoAuth))
+		}
+		r.Get("/session", func(w http.ResponseWriter, r *http.Request) {
+			httputil.RespondJSON(w, 200, map[string]any{"user_id": httputil.GetUserIDFromContext(r.Context()), "catalog_domain": "electronics", "workspace_mode": "single_operator", "demo": h.AllowDemoAuth, "outreach_enabled": h.OutreachEnabled})
+		})
+		if h.GatewayHandler != nil {
+			r.Mount("/telegram", h.GatewayHandler)
+		}
 		// Interests
 		r.Route("/interests", func(r chi.Router) {
 			r.Get("/", h.InterestHandler.List)
@@ -56,12 +82,14 @@ func NewRouter(h *Handlers) http.Handler {
 			r.Delete("/{id}", h.InterestHandler.Delete)
 		})
 
-		// Watch Sources
-		r.Route("/watch-sources", func(r chi.Router) {
-			r.Get("/", h.WatchSourceHandler.List)
-			r.Post("/", h.WatchSourceHandler.Create)
-			r.Delete("/{id}", h.WatchSourceHandler.Delete)
-		})
+		// Legacy route names delegate to the authoritative normalized registry.
+		if h.TelegramSourceHandler != nil {
+			r.Route("/watch-sources", func(r chi.Router) {
+				r.Get("/", h.TelegramSourceHandler.List)
+				r.Post("/", h.TelegramSourceHandler.Create)
+				r.Delete("/{id}", h.TelegramSourceHandler.Delete)
+			})
+		}
 
 		// Telegram Sources (Type-Aware Normalized Registry)
 		if h.TelegramSourceHandler != nil {

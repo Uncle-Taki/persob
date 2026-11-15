@@ -28,7 +28,7 @@ func (h *InterestHandler) List(w http.ResponseWriter, r *http.Request) {
 
 	list, err := h.interestRepo.ListByUserID(r.Context(), userID)
 	if err != nil {
-		httputil.RespondError(w, http.StatusInternalServerError, "Failed to list interests: "+err.Error())
+		httputil.RespondError(w, http.StatusInternalServerError, "Failed to list interests")
 		return
 	}
 
@@ -65,7 +65,7 @@ func (h *InterestHandler) Create(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.interestRepo.Create(r.Context(), interest); err != nil {
-		httputil.RespondError(w, http.StatusInternalServerError, "Failed to create interest: "+err.Error())
+		httputil.RespondError(w, http.StatusInternalServerError, "Failed to create interest")
 		return
 	}
 

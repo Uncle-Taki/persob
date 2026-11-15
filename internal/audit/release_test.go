@@ -361,10 +361,11 @@ func TestMongoEditsUpdateCurrentTextWithoutDuplicates(t *testing.T) {
 	}
 }
 
-func TestMedicalProductFrontendCannotEnterDeterministicBackend(t *testing.T) {
+// The live catalog is explicitly electronics; healthcare fixtures stay in demo mode.
+func TestUnsupportedCatalogDoesNotCreateElectronicsOffer(t *testing.T) {
 	e := extraction.NewExtractor().ExtractFromMessage(&domain.TelegramMessage{MessageText: "فروش دستگاه فشارسنج امرن M3 اصل قیمت ۳ میلیون تومان تهران"})
-	if len(e.ExtractedProducts) == 0 {
-		t.Fatal("frontend medical product has no backend deterministic extraction support")
+	if len(e.ExtractedProducts) != 0 {
+		t.Fatal("unsupported healthcare listing must not create an electronics offer")
 	}
 }
 

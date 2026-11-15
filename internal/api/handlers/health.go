@@ -43,7 +43,7 @@ func (h *HealthHandler) Ready(w http.ResponseWriter, r *http.Request) {
 	// Check Postgres
 	if h.pgDB != nil {
 		if err := h.pgDB.Ping(ctx); err != nil {
-			checks["postgres"] = "down: " + err.Error()
+			checks["postgres"] = "down"
 			allReady = false
 		} else {
 			checks["postgres"] = "up"
@@ -53,7 +53,7 @@ func (h *HealthHandler) Ready(w http.ResponseWriter, r *http.Request) {
 	// Check MongoDB
 	if h.mongoDB != nil && h.mongoDB.Client != nil {
 		if err := h.mongoDB.Client.Ping(ctx, nil); err != nil {
-			checks["mongodb"] = "down: " + err.Error()
+			checks["mongodb"] = "down"
 			allReady = false
 		} else {
 			checks["mongodb"] = "up"
@@ -63,7 +63,7 @@ func (h *HealthHandler) Ready(w http.ResponseWriter, r *http.Request) {
 	// Check Redis
 	if h.redis != nil && h.redis.Rdb != nil {
 		if err := h.redis.Rdb.Ping(ctx).Err(); err != nil {
-			checks["redis"] = "down: " + err.Error()
+			checks["redis"] = "down"
 			allReady = false
 		} else {
 			checks["redis"] = "up"

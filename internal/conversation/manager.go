@@ -3,11 +3,6 @@ package conversation
 import (
 	"context"
 	"fmt"
-	"log/slog"
-	"regexp"
-	"strings"
-	"time"
-
 	"github.com/google/uuid"
 	"github.com/perso/perso-mind/internal/config"
 	"github.com/perso/perso-mind/internal/domain"
@@ -16,12 +11,12 @@ import (
 	"github.com/perso/perso-mind/internal/storage/mongodb"
 	"github.com/perso/perso-mind/internal/storage/postgres"
 	"github.com/perso/perso-mind/internal/telegram"
+	"regexp"
+	"strings"
+	"time"
 )
 
-var (
-	botInquiryRegex = regexp.MustCompile(`(?i)(رباتی|ربات هستی|هوش مصنوعی|ai|بات هستی|آدمی|انسان هستی)`)
-	optOutRegex     = regexp.MustCompile(`(?i)(مزاحم نشو|پیام نده|لغو|بلاک|نمیخوام|دیگه نپرس|استپ|stop)`)
-)
+var optOutRegex = regexp.MustCompile(`(?i)(مزاحم نشو|پیام نده|لغو|بلاک|نمیخوام|دیگه نپرس|استپ|\bstop\b)`)
 
 type Manager struct {
 	cfg            *config.Config
@@ -33,331 +28,269 @@ type Manager struct {
 	llmProvider    llm.Provider
 }
 
-func NewManager(
-	cfg *config.Config,
-	pgConvRepo *postgres.ConversationRepo,
-	mongoConvRepo *mongodb.ConversationRepo,
-	auditRepo *postgres.AuditRepo,
-	telegramClient telegram.TelegramClient,
-	llmProvider llm.Provider,
-) *Manager {
-	return &Manager{
-		cfg:            cfg,
-		pgConvRepo:     pgConvRepo,
-		mongoConvRepo:  mongoConvRepo,
-		auditRepo:      auditRepo,
-		telegramClient: telegramClient,
-		llmProvider:    llmProvider,
-	}
+func NewManager(c *config.Config, p *postgres.ConversationRepo, m *mongodb.ConversationRepo, a *postgres.AuditRepo, t telegram.TelegramClient, l llm.Provider) *Manager {
+	return &Manager{cfg: c, pgConvRepo: p, mongoConvRepo: m, auditRepo: a, telegramClient: t, llmProvider: l}
 }
-
-func (m *Manager) SetSellerRepo(sellerRepo *postgres.SellerProfileRepo) {
-	m.sellerRepo = sellerRepo
-}
-
-// InitConversation creates a conversation for an offer with missing fields
-func (m *Manager) InitConversation(
-	ctx context.Context,
-	offer *domain.Offer,
-	missingFields []domain.MissingField,
-) (*domain.Conversation, error) {
-	if len(missingFields) == 0 {
-		return nil, nil // Nothing to ask
+func (m *Manager) SetSellerRepo(r *postgres.SellerProfileRepo) { m.sellerRepo = r }
+func (m *Manager) InitConversation(ctx context.Context, o *domain.Offer, missing []domain.MissingField) (*domain.Conversation, error) {
+	if len(missing) == 0 || o.SellerID <= 0 {
+		return nil, nil
 	}
-
-	// Respect seller opt-out and cooldown
 	if m.sellerRepo != nil {
-		if prof, err := m.sellerRepo.GetByID(ctx, offer.SellerID); err == nil && prof != nil {
-			if prof.OptedOut {
-				slog.Info("seller has opted out, skipping conversation", "seller_id", offer.SellerID)
-				return nil, nil
-			}
-			if prof.CooldownUntil != nil && prof.CooldownUntil.After(time.Now()) {
-				slog.Info("seller is in cooldown, skipping conversation", "seller_id", offer.SellerID)
-				return nil, nil
-			}
+		p, err := m.sellerRepo.GetByID(ctx, o.SellerID)
+		if err != nil {
+			return nil, err
+		}
+		if p != nil && (p.OptedOut || (p.CooldownUntil != nil && p.CooldownUntil.After(time.Now()))) {
+			return nil, nil
 		}
 	}
-
-	initialState := domain.ConvStateAwaitingApproval
-	if m.cfg.ConversationAutoApprove {
-		initialState = domain.ConvStateAwaitingConsent
+	owner := o.OwnerID
+	if owner == nil {
+		owner = m.cfg.OwnerID()
 	}
-
-	conv := &domain.Conversation{
-		ID:                  uuid.New(),
-		OfferID:             &offer.ID,
-		SellerID:            offer.SellerID,
-		ProductID:           offer.ProductID,
-		State:               initialState,
-		ConsentGranted:      false,
-		QuestionsAskedCount: 0,
-		MaxQuestions:        m.cfg.ConversationMaxQuestions,
-		MissingFields:       missingFields,
-		CollectedData:       make(map[string]any),
-		Notes:               "Created for missing fields extraction",
-		CreatedAt:           time.Now(),
-		UpdatedAt:           time.Now(),
+	// One active seller-purpose draft per operator/account; related offers remain in matches.
+	key := owner.String() + ":" + fmt.Sprint(o.SellerID) + ":listing_intake"
+	c := &domain.Conversation{ID: uuid.New(), OwnerID: owner, DraftKey: key, OriginKey: owner.String() + ":" + o.ID.String() + ":" + fmt.Sprint(o.SourceRevisionAt.UnixNano()), OfferID: &o.ID, SellerID: o.SellerID, ProductID: o.ProductID, State: domain.ConvStateAwaitingApproval, MissingFields: missing, CollectedData: map[string]any{}, MaxQuestions: m.cfg.ConversationMaxQuestions, Notes: "Draft for a matching purchase interest"}
+	if err := m.pgConvRepo.Create(ctx, c); err != nil {
+		return nil, err
 	}
-
-	if err := m.pgConvRepo.Create(ctx, conv); err != nil {
-		return nil, fmt.Errorf("create conversation in postgres: %w", err)
-	}
-
-	_ = m.auditRepo.Log(ctx, "system", "conversation_created", "conversation", conv.ID.String(), conv, "")
-
-	slog.Info("initialized seller conversation",
-		"conversation_id", conv.ID,
-		"seller_id", conv.SellerID,
-		"state", conv.State,
-		"missing_fields", conv.MissingFields,
-	)
-
-	// If auto-approved, send consent question right away
-	if conv.State == domain.ConvStateAwaitingConsent && m.telegramClient != nil {
-		_ = m.sendConsentRequest(ctx, conv, offer)
-	}
-
-	return conv, nil
+	return m.pgConvRepo.GetByID(ctx, c.ID)
 }
-
-// Approve transitions an outreach draft from AWAITING_APPROVAL to ACTIVE / AWAITING_CONSENT
-func (m *Manager) Approve(ctx context.Context, convID uuid.UUID, userID uuid.UUID) error {
-	conv, err := m.pgConvRepo.GetByID(ctx, convID)
+func (m *Manager) Approve(ctx context.Context, id, user uuid.UUID) error {
+	if !m.cfg.OutreachEnabled {
+		return fmt.Errorf("outreach is disabled by configuration")
+	}
+	c, err := m.pgConvRepo.GetByID(ctx, id)
 	if err != nil {
-		return fmt.Errorf("get conversation: %w", err)
-	}
-	if conv == nil {
-		return fmt.Errorf("conversation not found: %s", convID)
-	}
-
-	if err := Transition(conv.State, domain.ConvStateActive); err != nil {
 		return err
 	}
-
-	if err := m.pgConvRepo.Approve(ctx, convID, userID); err != nil {
-		return fmt.Errorf("approve conversation: %w", err)
-	}
-
-	_ = m.auditRepo.Log(ctx, userID.String(), "conversation_approved", "conversation", convID.String(), nil, "")
-
-	slog.Info("conversation approved by user", "conversation_id", convID, "user_id", userID)
-
-	// Send consent or first question
-	if m.telegramClient != nil && !conv.ConsentGranted {
-		_ = m.sendConsentRequest(ctx, conv, conv.Offer)
-	}
-
-	return nil
-}
-
-// Pause transitions a conversation to PAUSED
-func (m *Manager) Pause(ctx context.Context, convID uuid.UUID) error {
-	conv, err := m.pgConvRepo.GetByID(ctx, convID)
-	if err != nil || conv == nil {
+	if c == nil {
 		return fmt.Errorf("conversation not found")
 	}
-
-	if err := Transition(conv.State, domain.ConvStatePaused); err != nil {
+	if c.OwnerID == nil || *c.OwnerID != user {
+		return fmt.Errorf("conversation not authorized")
+	}
+	if c.State != domain.ConvStateAwaitingApproval {
+		return fmt.Errorf("conversation is not awaiting approval")
+	}
+	if m.sellerRepo != nil {
+		p, err := m.sellerRepo.GetByID(ctx, c.SellerID)
+		if err != nil {
+			return err
+		}
+		if p != nil && (p.OptedOut || (p.CooldownUntil != nil && p.CooldownUntil.After(time.Now()))) {
+			return fmt.Errorf("seller is not eligible for outreach")
+		}
+	}
+	now := time.Now().UTC()
+	c.ApprovedAt = &now
+	c.ApprovedByUserID = &user
+	c.State = domain.ConvStateAwaitingConsent
+	return m.pgConvRepo.SaveProgress(ctx, c, "سلام! من دستیار خودکار پرسو هستم. برای تکمیل مشخصات آگهی شما مایل هستید چند سؤال کوتاه بپرسم؟")
+}
+func (m *Manager) Pause(ctx context.Context, id uuid.UUID) error {
+	return m.setState(ctx, id, domain.ConvStatePaused)
+}
+func (m *Manager) Close(ctx context.Context, id uuid.UUID) error {
+	return m.setState(ctx, id, domain.ConvStateCompleted)
+}
+func (m *Manager) setState(ctx context.Context, id uuid.UUID, state domain.ConversationState) error {
+	c, err := m.pgConvRepo.GetByID(ctx, id)
+	if err != nil {
 		return err
 	}
-
-	return m.pgConvRepo.UpdateState(ctx, convID, domain.ConvStatePaused, "Paused by user")
-}
-
-// Close transitions a conversation to COMPLETED
-func (m *Manager) Close(ctx context.Context, convID uuid.UUID) error {
-	conv, err := m.pgConvRepo.GetByID(ctx, convID)
-	if err != nil || conv == nil {
+	if c == nil {
 		return fmt.Errorf("conversation not found")
 	}
-
-	if err := Transition(conv.State, domain.ConvStateCompleted); err != nil {
+	if err = Transition(c.State, state); err != nil {
 		return err
 	}
-
-	return m.pgConvRepo.UpdateState(ctx, convID, domain.ConvStateCompleted, "Closed by user")
+	c.State = state
+	return m.pgConvRepo.SaveProgress(ctx, c, "")
 }
-
-// HandleIncomingSellerMessage processes a message from the seller
-func (m *Manager) HandleIncomingSellerMessage(ctx context.Context, convID uuid.UUID, text string) (string, error) {
-	conv, err := m.pgConvRepo.GetByID(ctx, convID)
-	if err != nil || conv == nil {
+func (m *Manager) HandleIncomingSellerMessage(ctx context.Context, id uuid.UUID, text string) (string, error) {
+	c, err := m.pgConvRepo.GetByID(ctx, id)
+	if err != nil {
+		return "", err
+	}
+	if c == nil {
 		return "", fmt.Errorf("conversation not found")
 	}
-
-	// 1. Record incoming seller message in MongoDB history
-	_ = m.mongoConvRepo.SaveMessage(ctx, &domain.ConversationMessage{
-		ConversationID: convID.String(),
-		Sender:         domain.SenderSeller,
-		Text:           text,
-		SentAt:         time.Now(),
-		Delivered:      true,
-	})
-
-	norm := nlp.CleanSearchKey(text)
-
-	// 2. Check for Opt-Out / Refusal
-	if optOutRegex.MatchString(norm) {
-		_ = m.pgConvRepo.UpdateState(ctx, convID, domain.ConvStateOptedOut, "Seller opted out")
+	if c.CollectedData == nil {
+		c.CollectedData = map[string]any{}
+	}
+	if optOutRegex.MatchString(nlp.CleanSearchKey(text)) {
+		c.State = domain.ConvStateOptedOut
 		if m.sellerRepo != nil {
-			_ = m.sellerRepo.SetOptOut(ctx, conv.SellerID, true)
+			if err = m.sellerRepo.SetOptOut(ctx, c.SellerID, true); err != nil {
+				return "", err
+			}
 		}
-		reply := "درخواست شما ثبت شد. دیگر پیامی از طرف پرسو برای شما ارسال نخواهد شد. با احترام."
-		m.sendAssistantMessage(ctx, conv, reply)
-		return reply, nil
+		return "", m.pgConvRepo.SaveProgress(ctx, c, "")
 	}
-
-	// 3. Check for Bot Inquiry (Honest AI identity disclosure)
-	if botInquiryRegex.MatchString(norm) {
-		reply := "بله، من دستیار هوشمند و خودکار پلتفرم پرسو هستم که برای تکمیل مشخصات آگهی‌های بازار الکترونیک به خریداران و فروشندگان کمک می‌کنم."
-		m.sendAssistantMessage(ctx, conv, reply)
-		return reply, nil
-	}
-
-	// 4. Handle State: Awaiting Consent
-	if conv.State == domain.ConvStateAwaitingConsent {
-		consented, _ := m.llmProvider.ValidateConsentResponse(ctx, text)
-		if consented {
-			conv.ConsentGranted = true
-			_ = m.pgConvRepo.UpdateState(ctx, convID, domain.ConvStateActive, "Seller consented")
-			return m.askNextQuestion(ctx, conv)
-		} else {
-			_ = m.pgConvRepo.UpdateState(ctx, convID, domain.ConvStateDeclined, "Seller declined consent")
-			reply := "متشکرم، وقت شما به‌خیر."
-			m.sendAssistantMessage(ctx, conv, reply)
-			return reply, nil
+	reply := ""
+	switch c.State {
+	case domain.ConvStateAwaitingConsent:
+		accepted, known := llm.ConsentDecision(text)
+		if !known {
+			if c.QuestionsAskedCount >= c.MaxQuestions {
+				c.State = domain.ConvStateDeclined
+				break
+			}
+			c.QuestionsAskedCount++
+			reply = "آیا اجازه می‌دهید چند سؤال درباره همین آگهی بپرسم؟ لطفاً بله یا خیر بفرمایید."
+			break
 		}
-	}
-
-	// 5. Handle State: Waiting for Reply
-	if conv.State == domain.ConvStateWaitingForReply {
-		// Parse answer for current missing field
-		if len(conv.MissingFields) > 0 {
-			target := conv.MissingFields[0]
-			m.extractFieldFromAnswer(text, target, conv.CollectedData)
-			// Remove from missing fields
-			conv.MissingFields = conv.MissingFields[1:]
-			_ = m.pgConvRepo.UpdateCollectedData(ctx, convID, conv.CollectedData, conv.MissingFields)
+		if !accepted {
+			c.State = domain.ConvStateDeclined
+			break
 		}
-
-		// Check if done
-		if len(conv.MissingFields) == 0 || conv.QuestionsAskedCount >= conv.MaxQuestions {
-			_ = m.pgConvRepo.UpdateState(ctx, convID, domain.ConvStateCompleted, "All fields collected or max questions reached")
-			reply := "خیلی ممنون از پاسخ‌های دقیق شما! اطلاعات آگهی شما در سامانه پرسو تکمیل شد."
-			m.sendAssistantMessage(ctx, conv, reply)
-			return reply, nil
+		c.ConsentGranted = true
+		reply = m.nextQuestion(c)
+	case domain.ConvStateWaitingForReply:
+		if !c.ConsentGranted {
+			return "", fmt.Errorf("seller consent is required")
 		}
-
-		// Continue with next question
-		return m.askNextQuestion(ctx, conv)
-	}
-
-	return "", nil
-}
-
-func (m *Manager) sendConsentRequest(ctx context.Context, conv *domain.Conversation, offer *domain.Offer) error {
-	productName := "کالای شما"
-	if conv.Product != nil {
-		productName = conv.Product.Name
-	}
-
-	msg := fmt.Sprintf(
-		"سلام! من دستیار خودکار پرسو هستم. برای تکمیل اطلاعات آگهی شما درباره %s و نمایش بهتر به خریداران، مایل هستید چند سؤال کوتاه بپرسم؟",
-		productName,
-	)
-
-	m.sendAssistantMessage(ctx, conv, msg)
-	return m.pgConvRepo.UpdateState(ctx, conv.ID, domain.ConvStateAwaitingConsent, "Sent consent request")
-}
-
-func (m *Manager) askNextQuestion(ctx context.Context, conv *domain.Conversation) (string, error) {
-	if len(conv.MissingFields) == 0 || conv.QuestionsAskedCount >= conv.MaxQuestions {
-		_ = m.pgConvRepo.UpdateState(ctx, conv.ID, domain.ConvStateCompleted, "Finished questions")
+		if len(c.MissingFields) == 0 {
+			c.State = domain.ConvStateCompleted
+			break
+		}
+		if !extractAnswer(text, c.MissingFields[0], c.CollectedData) {
+			if c.QuestionsAskedCount >= c.MaxQuestions {
+				c.State = domain.ConvStateCompleted
+				c.Notes = "Question budget exhausted; unresolved fields retained"
+				break
+			}
+			c.QuestionsAskedCount++
+			reply = "پاسخ قابل ثبت نبود. " + fallbackQuestion(c.MissingFields[0], "کالا")
+			break
+		}
+		c.MissingFields = c.MissingFields[1:]
+		reply = m.nextQuestion(c)
+	default:
 		return "", nil
 	}
-
-	targetField := conv.MissingFields[0]
-	productName := "کالا"
-	if conv.Product != nil {
-		productName = conv.Product.Name
+	if err = m.pgConvRepo.SaveProgress(ctx, c, reply); err != nil {
+		return "", err
 	}
-
-	// Load history
-	hist, _ := m.mongoConvRepo.GetMessagesByConversationID(ctx, conv.ID.String())
-
-	question, err := m.llmProvider.GenerateConversationQuestion(ctx, productName, targetField, hist)
-	if err != nil || question == "" {
-		question = fallbackQuestion(targetField, productName)
+	if c.State == domain.ConvStateCompleted && m.sellerRepo != nil {
+		if err = m.sellerRepo.SetCooldown(ctx, c.SellerID, time.Now().Add(m.cfg.ConversationCooldown)); err != nil {
+			return "", err
+		}
 	}
-
-	m.sendAssistantMessage(ctx, conv, question)
-	_ = m.pgConvRepo.IncrementQuestions(ctx, conv.ID)
-	_ = m.pgConvRepo.UpdateState(ctx, conv.ID, domain.ConvStateWaitingForReply, "Waiting for reply on: "+string(targetField))
-
-	return question, nil
+	return reply, nil
 }
-
-func (m *Manager) sendAssistantMessage(ctx context.Context, conv *domain.Conversation, text string) {
-	// 1. Send via Telegram client if active
-	if m.telegramClient != nil {
-		_ = m.telegramClient.SendMessage(ctx, conv.SellerID, text)
+func (m *Manager) nextQuestion(c *domain.Conversation) string {
+	if len(c.MissingFields) == 0 || c.QuestionsAskedCount >= c.MaxQuestions {
+		c.State = domain.ConvStateCompleted
+		c.Notes = "Intake ended; unresolved fields remain visible"
+		return ""
 	}
-
-	// 2. Persist in MongoDB conversation messages
-	_ = m.mongoConvRepo.SaveMessage(ctx, &domain.ConversationMessage{
-		ConversationID: conv.ID.String(),
-		Sender:         domain.SenderAssistant,
-		Text:           text,
-		SentAt:         time.Now(),
-		Delivered:      true,
-	})
+	c.State = domain.ConvStateWaitingForReply
+	c.QuestionsAskedCount++
+	return fallbackQuestion(c.MissingFields[0], "کالا")
 }
-
-func (m *Manager) extractFieldFromAnswer(text string, field domain.MissingField, collected map[string]any) {
-	switch field {
+func extractAnswer(text string, f domain.MissingField, data map[string]any) bool {
+	text = strings.TrimSpace(text)
+	if len([]rune(text)) < 2 || len([]rune(text)) > 200 {
+		return false
+	}
+	switch f {
 	case domain.FieldPrice:
 		prices := nlp.ParsePrices(text)
-		if len(prices) > 0 {
-			collected["price_amount"] = prices[0].Amount
-			collected["price_raw"] = prices[0].Raw
-		} else {
-			collected["price_text"] = text
+		if len(prices) == 0 {
+			if match := explicitPriceAnswer.FindStringSubmatch(nlp.Normalize(text)); len(match) == 3 {
+				amount, err := nlp.ParsePersianNumber(match[1])
+				if err == nil {
+					currency := domain.CurrencyToman
+					if match[2] == "ریال" {
+						currency = domain.CurrencyRial
+					}
+					prices = []nlp.ParsedPrice{{Amount: amount, Currency: currency, Raw: text}}
+				}
+			}
 		}
-	case domain.FieldCity:
-		collected["seller_city"] = text
-	case domain.FieldTehranArea:
-		collected["seller_tehran_area"] = text
+		if len(prices) != 1 || prices[0].Amount <= 0 {
+			return false
+		}
+		data["price_amount"] = prices[0].Amount
+		data["price_currency"] = string(prices[0].Currency)
+		data["price_raw"] = prices[0].Raw
+	case domain.FieldCondition:
+		norm := nlp.CleanSearchKey(text)
+		choices := map[string]domain.ItemCondition{"آکبند": domain.ConditionNew, "نو": domain.ConditionNew, "new": domain.ConditionNew, "در حد نو": domain.ConditionLikeNew, "like new": domain.ConditionLikeNew, "کارکرده": domain.ConditionUsedFair, "used": domain.ConditionUsedFair, "کارکرده تمیز": domain.ConditionUsedGood}
+		condition, ok := choices[norm]
+		if !ok {
+			return false
+		}
+		data["condition"] = string(condition)
 	case domain.FieldBranded:
-		if strings.Contains(text, "اصل") || strings.Contains(text, "اورجینال") || strings.Contains(text, "بله") {
-			collected["branded"] = true
-		} else {
-			collected["branded"] = false
+		norm := nlp.CleanSearchKey(text)
+		switch norm {
+		case "بله", "اصل", "اصلی", "اورجینال", "yes", "original":
+			data["branded"] = true
+		case "خیر", "نه", "اصل نیست", "غیراصل", "طرح", "کپی", "no":
+			data["branded"] = false
+		default:
+			return false
 		}
 	case domain.FieldManufacturer:
-		collected["manufacturer"] = text
-	case domain.FieldExpiration:
-		collected["warranty_info"] = text
+		norm := nlp.CleanSearchKey(text)
+		if norm == "نامشخص" || norm == "نمیدانم" || norm == "نمی دانم" || norm == "unknown" || !regexp.MustCompile(`[\p{L}]`).MatchString(text) {
+			return false
+		}
+		data["manufacturer"] = text
+	case domain.FieldWarranty, domain.FieldExpiration:
+		if text == "ندارد" || strings.EqualFold(text, "none") {
+			data[string(f)] = ""
+			break
+		}
+		parsed, err := time.Parse("2006-01-02", nlp.Normalize(text))
+		if err != nil {
+			return false
+		}
+		data[string(f)] = parsed.Format("2006-01-02")
+	case domain.FieldCity:
+		result := extractionCity.FindString(nlp.Normalize(text))
+		if result == "" {
+			return false
+		}
+		data["seller_city"] = result
+	case domain.FieldTehranArea:
+		if strings.Contains(text, "نمی") || strings.Contains(text, "نامشخص") {
+			return false
+		}
+		data["seller_tehran_area"] = text
 	default:
-		collected[string(field)] = text
+		return false
+	}
+	return true
+}
+
+var extractionCity = regexp.MustCompile(`تهران|مشهد|اصفهان|شیراز|تبریز|کرج|اهواز|قم|رشت|ارومیه|یزد|ساری|کرمان|همدان|کیش`)
+
+func fallbackQuestion(field domain.MissingField, name string) string {
+	switch field {
+	case domain.FieldPrice:
+		return fmt.Sprintf("قیمت نهایی %s را با واحد تومان یا ریال بفرمایید.", name)
+	case domain.FieldCondition:
+		return "وضعیت کالا چیست؟ لطفاً نو، در حد نو یا کارکرده بفرمایید."
+	case domain.FieldBranded:
+		return "کالا اصل است؟ لطفاً بله یا خیر بفرمایید."
+	case domain.FieldManufacturer:
+		return "نام شرکت سازنده کالا چیست؟"
+	case domain.FieldWarranty:
+		return "گارانتی تا چه تاریخی معتبر است؟ تاریخ میلادی YYYY-MM-DD یا «ندارد» بفرمایید."
+	case domain.FieldExpiration:
+		return "تاریخ انقضای محصول را به میلادی YYYY-MM-DD یا «ندارد» بفرمایید."
+	case domain.FieldCity:
+		return "کالا در کدام شهر است؟"
+	case domain.FieldTehranArea:
+		return "در کدام محدوده یا بازار تهران امکان تحویل دارید؟"
+	default:
+		return "مشخصات تکمیلی آگهی را بفرمایید."
 	}
 }
 
-func fallbackQuestion(field domain.MissingField, productName string) string {
-	switch field {
-	case domain.FieldPrice:
-		return fmt.Sprintf("قیمت نهایی و پیشنهادی شما برای %s چقدر است؟", productName)
-	case domain.FieldBranded:
-		return fmt.Sprintf("دستگاه %s اصلی و تولید شرکت مربوطه است؟", productName)
-	case domain.FieldManufacturer:
-		return fmt.Sprintf("شرکت سازنده و مشخصات دقیق %s را بفرمایید.", productName)
-	case domain.FieldCity:
-		return "دستگاه در کدام شهر است؟"
-	case domain.FieldTehranArea:
-		return "برای تحویل در تهران، در کدام محدوده یا بازار (علاءالدین، بازار و ...) امکان تحویل دارید؟"
-	case domain.FieldExpiration:
-		return "مهلت تست یا گارانتی تا چه تاریخی دارد؟"
-	default:
-		return fmt.Sprintf("اطلاعات تکمیلی %s را بفرمایید.", productName)
-	}
-}
+var explicitPriceAnswer = regexp.MustCompile(`^(?:قیمت\s*[:=-]?\s*)?([0-9,،.]+)\s*(تومان|تومن|ریال)$`)

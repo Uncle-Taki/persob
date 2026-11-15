@@ -22,6 +22,10 @@ import (
 var floodWaitRegex = regexp.MustCompile(`FLOOD_WAIT_(\d+)`)
 
 type Collector struct {
+	retentionHandler func(context.Context) error
+
+	marketDB *postgres.DB
+
 	cfg                *config.Config
 	sessionStorage     *EncryptedSessionStorage
 	watchSourceRepo    *postgres.WatchSourceRepo
@@ -32,6 +36,8 @@ type Collector struct {
 	mockClient         *MockClient
 	tgClient           *telegram.Client
 	resolver           *Resolver
+	authorized         bool
+	replyHandler       func(context.Context, *tg.Message) error
 	running            bool
 	mu                 sync.Mutex
 }
@@ -104,10 +110,13 @@ func (c *Collector) Start(ctx context.Context) error {
 		return c.runMockLoop(ctx)
 	}
 
+	go c.reconcileDispatch(ctx)
 	return c.runMTProtoLoop(ctx)
 }
 
 func (c *Collector) runMockLoop(ctx context.Context) error {
+	go c.reconcileDispatch(ctx)
+	go c.runOutbox(ctx)
 	slog.Info("starting telegram mock collector loop")
 	_ = c.mockClient.Start(ctx)
 
@@ -154,14 +163,19 @@ func (c *Collector) runMTProtoLoop(ctx context.Context) error {
 		return c.handleTelegramMessageClass(msgCtx, e, msg, true)
 	})
 
+	dispatcher.OnDeleteChannelMessages(func(ctx context.Context, e tg.Entities, u *tg.UpdateDeleteChannelMessages) error {
+		return c.deleteMessages(ctx, -1000000000000-u.ChannelID, u.Messages)
+	})
 	opts := telegram.Options{
 		SessionStorage: c.sessionStorage,
 		UpdateHandler:  dispatcher,
 	}
 
 	client := telegram.NewClient(c.cfg.TelegramAppID, c.cfg.TelegramAppHash, opts)
+	c.mu.Lock()
 	c.tgClient = client
 	c.resolver = NewResolver(client, false)
+	c.mu.Unlock()
 
 	return client.Run(ctx, func(runCtx context.Context) error {
 		// Check authorization status
@@ -177,6 +191,13 @@ func (c *Collector) runMTProtoLoop(ctx context.Context) error {
 			return runCtx.Err()
 		}
 
+		c.mu.Lock()
+		c.authorized = true
+		c.mu.Unlock()
+		defer func() { c.mu.Lock(); c.authorized = false; c.mu.Unlock() }()
+		go c.syncSources(runCtx)
+		go c.maintainRetention(runCtx)
+		go c.runOutbox(runCtx)
 		slog.Info("telegram client authorized successfully and listening for updates")
 		<-runCtx.Done()
 		return runCtx.Err()
@@ -190,6 +211,15 @@ func (c *Collector) handleTelegramMessageClass(ctx context.Context, e tg.Entitie
 		return nil
 	}
 
+	if err := c.cacheEntities(ctx, e); err != nil {
+		return err
+	}
+	if _, private := msg.PeerID.(*tg.PeerUser); private {
+		if c.replyHandler != nil {
+			return c.replyHandler(ctx, msg)
+		}
+		return nil
+	}
 	peerID := extractPeerID(msg.PeerID)
 	if peerID == 0 {
 		return nil
@@ -245,6 +275,23 @@ func (c *Collector) handleTelegramMessageClass(ctx context.Context, e tg.Entitie
 		return nil
 	}
 
+	if isDiscussion && c.marketDB != nil {
+		if telegramMsg.LinkedPostID != nil {
+			if _, err = c.marketDB.Pool.Exec(ctx, `INSERT INTO discussion_post_links VALUES($1,$2,$3,$4) ON CONFLICT DO NOTHING`, peerID, msg.ID, matchedSource.TelegramPeerID, *telegramMsg.LinkedPostID); err != nil {
+				return err
+			}
+		} else if header, ok := msg.ReplyTo.(*tg.MessageReplyHeader); ok {
+			root := header.ReplyToTopID
+			if root == 0 {
+				root = header.ReplyToMsgID
+			}
+			var original int64
+			lookupErr := c.marketDB.Pool.QueryRow(ctx, `SELECT channel_message_id FROM discussion_post_links WHERE discussion_peer_id=$1 AND discussion_message_id=$2 AND channel_peer_id=$3`, peerID, root, matchedSource.TelegramPeerID).Scan(&original)
+			if lookupErr == nil {
+				telegramMsg.LinkedPostID = &original
+			}
+		}
+	}
 	if isEdit && msg.EditDate != 0 {
 		t := time.Unix(int64(msg.EditDate), 0)
 		telegramMsg.EditedDate = &t
@@ -253,10 +300,11 @@ func (c *Collector) handleTelegramMessageClass(ctx context.Context, e tg.Entitie
 	if err := c.processIncomingMessage(ctx, telegramMsg); err != nil {
 		return err
 	}
-	// Channel and discussion IDs belong to different sequences.
+
 	if matchedSource != nil && c.telegramSourceRepo != nil && !isDiscussion {
 		return c.telegramSourceRepo.UpdateSyncCheckpoint(ctx, matchedSource.ID, int64(msg.ID), time.Now().UTC())
 	}
+
 	return nil
 }
 
@@ -278,7 +326,7 @@ func (c *Collector) processIncomingMessage(ctx context.Context, msg *domain.Tele
 			return fmt.Errorf("check legacy source: %w", err)
 		}
 	}
-	if !monitored && c.mockClient == nil {
+	if !monitored && (configured || c.mockClient == nil) {
 		return nil
 	}
 
@@ -298,6 +346,9 @@ func (c *Collector) processIncomingMessage(ctx context.Context, msg *domain.Tele
 		return err
 	}
 
+	if err := c.messagesRepo.MarkDispatched(ctx, msg); err != nil {
+		return err
+	}
 	slog.Info("ingested telegram message successfully",
 		"chat_id", msg.TelegramChatID,
 		"msg_id", msg.TelegramMessageID,
@@ -357,5 +408,59 @@ func (c *Collector) MockClient() *MockClient {
 }
 
 func (c *Collector) Resolver() *Resolver {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	return c.resolver
 }
+
+func (c *Collector) Connected() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.authorized || c.mockClient != nil
+}
+func (c *Collector) SetReplyHandler(h func(context.Context, *tg.Message) error) { c.replyHandler = h }
+func (c *Collector) reconcileDispatch(ctx context.Context) {
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			msgs, err := c.messagesRepo.GetUndispatched(ctx)
+			if err != nil {
+				slog.Error("dispatch reconciliation", "error", err)
+				continue
+			}
+			for i := range msgs {
+				if _, err = c.producer.PublishMessage(ctx, &msgs[i]); err != nil {
+					break
+				}
+				if err = c.messagesRepo.MarkDispatched(ctx, &msgs[i]); err != nil {
+					slog.Error("dispatch marker", "error", err)
+				}
+			}
+		}
+	}
+}
+
+func (c *Collector) deleteMessages(ctx context.Context, peer int64, ids []int) error {
+	for _, id := range ids {
+		msg, err := c.messagesRepo.GetByChatAndMessageID(ctx, peer, int64(id))
+		if err != nil {
+			return err
+		}
+		if msg == nil {
+			continue
+		}
+		now := time.Now().UTC()
+		msg.Deleted = true
+		msg.EditedDate = &now
+		if err = c.processIncomingMessage(ctx, msg); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (c *Collector) SetRetentionHandler(h func(context.Context) error) { c.retentionHandler = h }
