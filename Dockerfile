@@ -21,7 +21,8 @@ RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /app/bin/perso ./cmd/p
 # ==========================================
 FROM alpine:3.23
 
-RUN apk add --no-cache ca-certificates tzdata
+# Refresh the runtime layer's Alpine packages before installing application dependencies.
+RUN apk upgrade --no-cache && apk add --no-cache ca-certificates tzdata
 
 # Create non-root user
 RUN addgroup -g 10001 -S perso && \
