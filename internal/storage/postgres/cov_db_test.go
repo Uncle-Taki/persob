@@ -76,8 +76,8 @@ func TestCovMigrateFreshAndIdempotent(t *testing.T) {
 	if err := db.Pool.QueryRow(context.Background(), "SELECT COUNT(*) FROM schema_migrations").Scan(&n); err != nil {
 		t.Fatalf("count migrations: %v", err)
 	}
-	if n != 3 {
-		t.Fatalf("expected 3 applied migrations, got %d", n)
+	if n != 5 {
+		t.Fatalf("expected 5 applied migrations, got %d", n)
 	}
 	// Re-run must be a no-op that succeeds.
 	if err := db.Migrate(context.Background()); err != nil {
@@ -86,8 +86,8 @@ func TestCovMigrateFreshAndIdempotent(t *testing.T) {
 	if err := db.Pool.QueryRow(context.Background(), "SELECT COUNT(*) FROM schema_migrations").Scan(&n); err != nil {
 		t.Fatalf("recount migrations: %v", err)
 	}
-	if n != 3 {
-		t.Fatalf("re-run changed applied migration count to %d, want 3", n)
+	if n != 5 {
+		t.Fatalf("re-run changed applied migration count to %d, want 5", n)
 	}
 	var hasOffers bool
 	if err := db.Pool.QueryRow(context.Background(), "SELECT to_regclass('offers') IS NOT NULL").Scan(&hasOffers); err != nil {

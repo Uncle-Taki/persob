@@ -5,6 +5,20 @@ permissions:
 jobs:
   unit:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_HOST_AUTH_METHOD: trust
+          POSTGRES_DB: perso_audit
+        ports: ["55439:5432"]
+        options: --health-cmd "pg_isready -U postgres -d perso_audit" --health-interval 3s --health-timeout 5s --health-retries 30
+      redis:
+        image: redis:7-alpine
+        ports: ["56389:6379"]
+        options: --health-cmd "redis-cli ping" --health-interval 3s --health-timeout 5s --health-retries 30
+    env:
+      PERSO_IDENTITY_TEST_DSN: postgres://postgres@127.0.0.1:55439/perso_audit?sslmode=disable
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5

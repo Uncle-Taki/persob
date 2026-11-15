@@ -13,7 +13,7 @@ import (
 // from the host environment (getEnv treats empty as unset).
 var configEnvKeys = []string{
 	"OUTBOUND_INTERVAL_SECONDS", "OUTBOUND_TIMEZONE", "OUTREACH_ENABLED",
-	"API_TOKEN", "OPERATOR_USER_ID",
+	"API_TOKEN", "OPERATOR_USER_ID", "BOOTSTRAP_ADMIN_USERNAME", "BOOTSTRAP_ADMIN_PASSWORD", "AUTH_COOKIE_SECURE",
 	"TELEGRAM_GATEWAY_ADDR", "TELEGRAM_GATEWAY_URL", "TELEGRAM_GATEWAY_TOKEN",
 	"TELEGRAM_BACKFILL_LIMIT", "RETENTION_DAYS",
 	"ENVIRONMENT", "PORT", "HOST", "LOG_LEVEL", "DEMO_AUTH_ENABLED",
@@ -145,6 +145,7 @@ func TestLoadValidationErrors(t *testing.T) {
 		env  map[string]string
 		want string
 	}{
+		{"insecure production cookie", map[string]string{"ENVIRONMENT": "production", "AUTH_COOKIE_SECURE": "false"}, "production requires AUTH_COOKIE_SECURE=true"},
 		{"demo auth in production", map[string]string{"ENVIRONMENT": "production", "DEMO_AUTH_ENABLED": "true"}, "DEMO_AUTH_ENABLED is permitted only in development or test"},
 		{"llm enabled without api key", map[string]string{"LLM_ENABLED": "true"}, "LLM_ENABLED requires the supported gemini provider and an API key"},
 		{"llm enabled unsupported provider", map[string]string{"LLM_ENABLED": "true", "LLM_PROVIDER": "openai", "GEMINI_API_KEY": "k"}, "LLM_ENABLED requires the supported gemini provider and an API key"},

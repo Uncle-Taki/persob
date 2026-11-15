@@ -149,8 +149,8 @@ func TestUpgradeAdoptsExistingSchemaWithoutLosingOffers(t *testing.T) {
 		t.Fatalf("upgrade lost an existing offer: %v count=%d", err, count)
 	}
 	db.Pool.QueryRow(ctx, `SELECT count(*) FROM schema_migrations`).Scan(&count)
-	if count != 3 {
-		t.Fatalf("migration ledger has %d entries, want 3", count)
+	if count != 5 {
+		t.Fatalf("migration ledger has %d entries, want 5", count)
 	}
 }
 func TestTypedIntakeRejectsCrossOperatorApproval(t *testing.T) {

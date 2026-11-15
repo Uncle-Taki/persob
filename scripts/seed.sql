@@ -1,7 +1,7 @@
 -- Seed canonical products, aliases and default demo user
 INSERT INTO users (id, username, email, full_name, role)
 VALUES
-    ('11111111-1111-1111-1111-111111111111', 'demo_buyer', 'buyer@perso.local', 'کاربر تستی پرسو', 'user')
+    ('11111111-1111-1111-1111-111111111111', 'demo_buyer', 'buyer@perso.local', 'کاربر تستی پرسو', 'buyer')
 ON CONFLICT (id) DO NOTHING;
 
 -- Products
@@ -59,4 +59,4 @@ VALUES (
     true,
     'active'
 )
-ON CONFLICT (owner_id, telegram_peer_id) DO NOTHING;
+ON CONFLICT (workspace_id, telegram_peer_id) DO NOTHING;

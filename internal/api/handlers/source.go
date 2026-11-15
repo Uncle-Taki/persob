@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/perso/perso-mind/internal/api/httputil"
 	"github.com/perso/perso-mind/internal/domain"
+	"github.com/perso/perso-mind/internal/identity"
 	"github.com/perso/perso-mind/internal/storage/postgres"
 	"github.com/perso/perso-mind/internal/telegram"
 )
@@ -109,11 +110,18 @@ func respondResolutionError(w http.ResponseWriter, err error) {
 	httputil.RespondError(w, http.StatusBadRequest, "Unable to resolve the Telegram source")
 }
 
-// List returns all configured Telegram sources for the active user
+// List returns the workspace registry; router middleware restricts it to admins.
 func (h *TelegramSourceHandler) List(w http.ResponseWriter, r *http.Request) {
-	userID := httputil.GetUserIDFromContext(r.Context())
-
-	sources, err := h.sourceRepo.ListByOwner(r.Context(), userID)
+	var sources []*domain.TelegramSource
+	var err error
+	if isWorkspaceAdmin(r) {
+		sources, err = h.sourceRepo.ListWorkspace(r.Context())
+	} else if identity.Current(r.Context()) != nil {
+		httputil.RespondError(w, 403, "Administrator access required")
+		return
+	} else {
+		sources, err = h.sourceRepo.ListByOwner(r.Context(), httputil.GetUserIDFromContext(r.Context()))
+	}
 	if err != nil {
 		httputil.RespondError(w, http.StatusInternalServerError, "Failed to list telegram sources")
 		return
@@ -137,12 +145,10 @@ func (h *TelegramSourceHandler) Get(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	userID := httputil.GetUserIDFromContext(r.Context())
-	if source.OwnerID != userID {
-		httputil.RespondError(w, http.StatusForbidden, "Access denied")
+	if !mayManageSource(r, source) {
+		httputil.RespondError(w, 403, "Access denied")
 		return
 	}
-
 	httputil.RespondJSON(w, http.StatusOK, source)
 }
 
@@ -161,11 +167,10 @@ func (h *TelegramSourceHandler) GetCapabilities(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	if source.OwnerID != httputil.GetUserIDFromContext(r.Context()) {
-		httputil.RespondError(w, http.StatusForbidden, "Access denied")
+	if !mayManageSource(r, source) {
+		httputil.RespondError(w, 403, "Access denied")
 		return
 	}
-
 	httputil.RespondJSON(w, http.StatusOK, map[string]interface{}{
 		"id":           source.ID,
 		"source_type":  source.SourceType,
@@ -187,11 +192,11 @@ func (h *TelegramSourceHandler) UpdateStatus(w http.ResponseWriter, r *http.Requ
 		httputil.RespondError(w, http.StatusNotFound, "Source not found")
 		return
 	}
-	if source.OwnerID != httputil.GetUserIDFromContext(r.Context()) {
-		httputil.RespondError(w, http.StatusForbidden, "Access denied")
+
+	if !mayManageSource(r, source) {
+		httputil.RespondError(w, 403, "Access denied")
 		return
 	}
-
 	var req domain.UpdateTelegramSourceStatusRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		httputil.RespondError(w, http.StatusBadRequest, "Invalid request body")
@@ -205,6 +210,10 @@ func (h *TelegramSourceHandler) UpdateStatus(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
+	if req.IngestionStatus == domain.IngestionStatusActive && !source.Capabilities.CanReadHistory {
+		httputil.RespondError(w, http.StatusConflict, "Resolve this source with the connected Telegram account before resuming")
+		return
+	}
 	if err := h.sourceRepo.UpdateStatus(r.Context(), id, req.IngestionStatus, req.IsActive); err != nil {
 		httputil.RespondError(w, http.StatusInternalServerError, "Failed to update source status")
 		return
@@ -215,7 +224,6 @@ func (h *TelegramSourceHandler) UpdateStatus(w http.ResponseWriter, r *http.Requ
 
 // Delete removes a configured Telegram source
 func (h *TelegramSourceHandler) Delete(w http.ResponseWriter, r *http.Request) {
-	userID := httputil.GetUserIDFromContext(r.Context())
 	idStr := chi.URLParam(r, "id")
 	id, err := uuid.Parse(idStr)
 	if err != nil {
@@ -223,10 +231,23 @@ func (h *TelegramSourceHandler) Delete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.sourceRepo.Delete(r.Context(), id, userID); err != nil {
+	if err := h.sourceRepo.DeleteWorkspace(r.Context(), id, httputil.GetUserIDFromContext(r.Context())); err != nil {
+		if errors.Is(err, postgres.ErrSourceForbidden) {
+			httputil.RespondError(w, 403, "Administrator access required")
+			return
+		}
 		httputil.RespondError(w, http.StatusNotFound, err.Error())
 		return
 	}
 
 	httputil.RespondJSON(w, http.StatusOK, map[string]string{"message": "Telegram source deleted successfully"})
+}
+
+// Real sessions use workspace roles; legacy test/demo contexts retain their
+// creator boundary instead of treating an arbitrary user ID as an administrator.
+func mayManageSource(r *http.Request, s *domain.TelegramSource) bool {
+	if identity.Current(r.Context()) != nil {
+		return isWorkspaceAdmin(r) && s.WorkspaceID == domain.WorkspaceID
+	}
+	return s.OwnerID == httputil.GetUserIDFromContext(r.Context())
 }

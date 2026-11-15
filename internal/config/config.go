@@ -13,6 +13,9 @@ import (
 )
 
 type Config struct {
+	BootstrapUsername    string
+	BootstrapPassword    string
+	AuthCookieSecure     bool
 	OutboundInterval     time.Duration
 	QuietStart, QuietEnd int
 	OutboundTimezone     string
@@ -84,7 +87,10 @@ type Config struct {
 
 func Load() (*Config, error) {
 	cfg := &Config{
-		OutboundInterval: time.Duration(getEnvAsInt("OUTBOUND_INTERVAL_SECONDS", 5)) * time.Second, OutboundTimezone: getEnv("OUTBOUND_TIMEZONE", "Asia/Tehran"),
+		BootstrapUsername: getEnv("BOOTSTRAP_ADMIN_USERNAME", ""),
+		BootstrapPassword: getEnv("BOOTSTRAP_ADMIN_PASSWORD", ""),
+		AuthCookieSecure:  getEnvAsBool("AUTH_COOKIE_SECURE", getEnv("ENVIRONMENT", "development") == "production"),
+		OutboundInterval:  time.Duration(getEnvAsInt("OUTBOUND_INTERVAL_SECONDS", 5)) * time.Second, OutboundTimezone: getEnv("OUTBOUND_TIMEZONE", "Asia/Tehran"),
 		OutreachEnabled: getEnvAsBool("OUTREACH_ENABLED", false),
 		APIToken:        getEnv("API_TOKEN", ""), OperatorUserID: getEnv("OPERATOR_USER_ID", "11111111-1111-1111-1111-111111111111"),
 		GatewayAddr: getEnv("TELEGRAM_GATEWAY_ADDR", "0.0.0.0:8090"), GatewayURL: getEnv("TELEGRAM_GATEWAY_URL", "http://127.0.0.1:8090"), GatewayToken: getEnv("TELEGRAM_GATEWAY_TOKEN", ""),
@@ -137,6 +143,9 @@ func Load() (*Config, error) {
 		ConversationAutoApprove:  getEnvAsBool("CONVERSATION_AUTO_APPROVE", false),
 	}
 
+	if cfg.Environment == "production" && !cfg.AuthCookieSecure {
+		return nil, fmt.Errorf("production requires AUTH_COOKIE_SECURE=true")
+	}
 	if cfg.DemoAuthEnabled && cfg.Environment != "development" && cfg.Environment != "test" {
 		return nil, fmt.Errorf("DEMO_AUTH_ENABLED is permitted only in development or test")
 	}

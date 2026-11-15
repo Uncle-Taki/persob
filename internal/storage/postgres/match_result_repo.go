@@ -41,12 +41,16 @@ func (r *MatchResultRepo) Create(ctx context.Context, res *domain.OfferMatchResu
 			matched_attributes, unmatched_attributes, created_at
 		) VALUES (
 			$1, $2, $3, $4, $5, $6, $7, $8, $9, $10
-		)
+		) ON CONFLICT(offer_id,user_id) DO UPDATE SET
+        interest_id=EXCLUDED.interest_id,product_id=EXCLUDED.product_id,
+        match_score=EXCLUDED.match_score,match_explanation=EXCLUDED.match_explanation,
+        matched_attributes=EXCLUDED.matched_attributes,unmatched_attributes=EXCLUDED.unmatched_attributes
+        RETURNING id,created_at
 	`
-	_, err = r.db.Pool.Exec(ctx, query,
+	err = r.db.Pool.QueryRow(ctx, query,
 		res.ID, res.OfferID, res.InterestID, res.UserID, res.ProductID,
 		res.MatchScore, res.MatchExplanation, matchedJSON, unmatchedJSON, res.CreatedAt,
-	)
+	).Scan(&res.ID, &res.CreatedAt)
 	if err != nil {
 		return fmt.Errorf("create offer match result: %w", err)
 	}

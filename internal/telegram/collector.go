@@ -238,9 +238,12 @@ func (c *Collector) handleTelegramMessageClass(ctx context.Context, e tg.Entitie
 		activeSources, err := c.telegramSourceRepo.ListActiveSources(ctx)
 		if err == nil {
 			for _, s := range activeSources {
-				if s.TelegramPeerID == peerID || (s.LinkedDiscussionPeerID != nil && *s.LinkedDiscussionPeerID == peerID) {
+				if s.TelegramPeerID == peerID {
 					matchedSource = s
 					break
+				}
+				if s.LinkedDiscussionPeerID != nil && *s.LinkedDiscussionPeerID == peerID {
+					matchedSource = s
 				}
 			}
 		}
@@ -330,6 +333,19 @@ func (c *Collector) processIncomingMessage(ctx context.Context, msg *domain.Tele
 		return nil
 	}
 
+	// Bind raw provenance to the exact registered peer. Parent channel grants
+	// must never leak linked-discussion text. Derive identity server-side even for
+	// mock/legacy payloads, rather than trusting the supplied source_id.
+	msg.SourceID = ""
+	if c.telegramSourceRepo != nil {
+		sourceID, err := c.telegramSourceRepo.SourceForPeer(ctx, msg.TelegramChatID)
+		if err != nil {
+			return err
+		}
+		if sourceID != nil {
+			msg.SourceID = sourceID.String()
+		}
+	}
 	// 2. Pre-normalize text for search indexing
 	msg.NormalizedText = nlp.Normalize(msg.MessageText)
 
