@@ -10,7 +10,7 @@ Go API, Telegram gateway, Redis worker, extraction/matching and storage for the 
 - `migrate` applies ordered embedded migrations with checksums and an advisory lock.
 - `all` runs API, gateway and workers together with shared cancellation. It is convenient locally; Compose uses separate roles.
 
-The live catalog is electronics. Healthcare fixtures remain in the frontend's separate demo. LLM extraction is disabled by default, also requires an explicit source-level permission, is capped at 30 calls/minute across workers and skips messages over 6000 characters. Deterministic processing remains available without a provider.
+The live catalog is electronics. Healthcare fixtures remain in the frontend's separate demo. LLM extraction is disabled by default, also requires an explicit source-level permission, is capped at 30 calls/minute across workers and skips messages over 6000 characters. Deterministic processing remains available without a provider. The local OpenAI-compatible demo contract and failure scenarios are documented in [docs/openai-mock.md](docs/openai-mock.md).
 
 Normal developer commands:
 

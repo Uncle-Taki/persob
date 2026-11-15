@@ -22,7 +22,7 @@ var configEnvKeys = []string{
 	"REDIS_ADDR", "REDIS_PASSWORD", "REDIS_DB", "REDIS_STREAM_KEY", "REDIS_CONSUMER_GROUP", "REDIS_CONSUMER_NAME",
 	"TELEGRAM_APP_ID", "TELEGRAM_APP_HASH", "TELEGRAM_PHONE_NUMBER", "TELEGRAM_SESSION_DIR",
 	"TELEGRAM_SESSION_STORAGE_KEY", "TELEGRAM_MOCK_MODE",
-	"LLM_ENABLED", "LLM_PROVIDER", "GEMINI_API_KEY", "GEMINI_MODEL", "LLM_TIMEOUT_SECONDS", "LLM_MAX_RETRIES",
+	"LLM_ENABLED", "LLM_PROVIDER", "LLM_BASE_URL", "LLM_MODEL", "LLM_API_KEY", "GEMINI_API_KEY", "GEMINI_MODEL", "LLM_TIMEOUT_SECONDS", "LLM_MAX_RETRIES",
 	"WORKER_CONCURRENCY", "BATCH_SIZE", "POLL_INTERVAL_MS",
 	"CONVERSATION_MAX_QUESTIONS", "CONVERSATION_COOLDOWN_HOURS", "CONVERSATION_AUTO_APPROVE",
 	"OUTREACH_QUIET_HOURS", "CONVERSATION_FIELDS",
@@ -76,6 +76,9 @@ func TestLoadHappyPathDefaults(t *testing.T) {
 	}
 	if cfg.GeminiModel != "gemini-2.5-flash" || cfg.LLMTimeoutSecs != 15 || cfg.LLMMaxRetries != 3 {
 		t.Errorf("llm defaults = %+v", cfg)
+	}
+	if cfg.LLMBaseURL != "http://llm-mock:8091/v1" || cfg.LLMModel != "perso-healthcare-mock" {
+		t.Errorf("openai-compatible defaults = %q %q", cfg.LLMBaseURL, cfg.LLMModel)
 	}
 	if cfg.RedisAddr != "localhost:6379" || cfg.RedisDB != 0 {
 		t.Errorf("redis defaults = %+v", cfg)
@@ -139,6 +142,21 @@ func TestLoadValidOverridesAccepted(t *testing.T) {
 	}
 }
 
+func TestLoadOpenAICompatibleProvider(t *testing.T) {
+	clearConfigEnv(t)
+	t.Setenv("LLM_ENABLED", "true")
+	t.Setenv("LLM_PROVIDER", "openai_compatible")
+	t.Setenv("LLM_BASE_URL", "http://llm-mock:8091/v1")
+	t.Setenv("LLM_MODEL", "perso-healthcare-mock")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() rejected openai-compatible provider: %v", err)
+	}
+	if cfg.LLMProvider != "openai_compatible" || cfg.LLMBaseURL == "" || cfg.LLMModel == "" {
+		t.Fatalf("unexpected provider config: %+v", cfg)
+	}
+}
+
 func TestLoadValidationErrors(t *testing.T) {
 	cases := []struct {
 		name string
@@ -147,8 +165,8 @@ func TestLoadValidationErrors(t *testing.T) {
 	}{
 		{"insecure production cookie", map[string]string{"ENVIRONMENT": "production", "AUTH_COOKIE_SECURE": "false"}, "production requires AUTH_COOKIE_SECURE=true"},
 		{"demo auth in production", map[string]string{"ENVIRONMENT": "production", "DEMO_AUTH_ENABLED": "true"}, "DEMO_AUTH_ENABLED is permitted only in development or test"},
-		{"llm enabled without api key", map[string]string{"LLM_ENABLED": "true"}, "LLM_ENABLED requires the supported gemini provider and an API key"},
-		{"llm enabled unsupported provider", map[string]string{"LLM_ENABLED": "true", "LLM_PROVIDER": "openai", "GEMINI_API_KEY": "k"}, "LLM_ENABLED requires the supported gemini provider and an API key"},
+		{"llm enabled without api key", map[string]string{"LLM_ENABLED": "true"}, "LLM_ENABLED with gemini requires GEMINI_API_KEY"},
+		{"llm enabled unsupported provider", map[string]string{"LLM_ENABLED": "true", "LLM_PROVIDER": "openai", "GEMINI_API_KEY": "k"}, "LLM_ENABLED requires provider gemini or openai_compatible"},
 		{"real telegram default session key", map[string]string{"TELEGRAM_APP_ID": "1"}, "real Telegram mode requires a non-default session encryption key"},
 		{"real telegram empty session key", map[string]string{"TELEGRAM_APP_ID": "1", "TELEGRAM_SESSION_STORAGE_KEY": ""}, "real Telegram mode requires a non-default session encryption key"},
 		{"outbound interval zero", map[string]string{"OUTBOUND_INTERVAL_SECONDS": "0"}, "OUTBOUND_INTERVAL_SECONDS must be positive"},

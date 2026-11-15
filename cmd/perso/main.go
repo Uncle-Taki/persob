@@ -149,9 +149,15 @@ func main() {
 
 	// LLM Provider
 	var llmProvider llm.Provider
-	if cfg.LLMEnabled && cfg.GeminiAPIKey != "" {
-		slog.Info("initializing gemini llm provider", "model", cfg.GeminiModel)
-		llmProvider = llm.NewGeminiProvider(cfg.GeminiAPIKey, cfg.GeminiModel, cfg.LLMTimeoutSecs, cfg.LLMMaxRetries)
+	if cfg.LLMEnabled {
+		switch cfg.LLMProvider {
+		case "gemini":
+			slog.Info("initializing gemini llm provider", "model", cfg.GeminiModel)
+			llmProvider = llm.NewGeminiProvider(cfg.GeminiAPIKey, cfg.GeminiModel, cfg.LLMTimeoutSecs, cfg.LLMMaxRetries)
+		case "openai_compatible":
+			slog.Info("initializing openai-compatible llm provider", "base_url", cfg.LLMBaseURL, "model", cfg.LLMModel)
+			llmProvider = llm.NewOpenAICompatibleProvider(cfg.LLMBaseURL, cfg.LLMModel, cfg.LLMAPIKey, cfg.LLMTimeoutSecs, cfg.LLMMaxRetries)
+		}
 	} else {
 		slog.Info("using mock llm provider (llm disabled by default for privacy compliance)")
 		llmProvider = llm.NewMockProvider()

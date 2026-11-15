@@ -69,6 +69,9 @@ type Config struct {
 	// LLM
 	LLMEnabled     bool
 	LLMProvider    string
+	LLMBaseURL     string
+	LLMModel       string
+	LLMAPIKey      string
 	GeminiAPIKey   string
 	GeminiModel    string
 	LLMTimeoutSecs int
@@ -129,6 +132,9 @@ func Load() (*Config, error) {
 		// LLM disabled by default for privacy & Telegram Terms compliance
 		LLMEnabled:     getEnvAsBool("LLM_ENABLED", false),
 		LLMProvider:    getEnv("LLM_PROVIDER", "gemini"),
+		LLMBaseURL:     getEnv("LLM_BASE_URL", "http://llm-mock:8091/v1"),
+		LLMModel:       getEnv("LLM_MODEL", "perso-healthcare-mock"),
+		LLMAPIKey:      getEnv("LLM_API_KEY", ""),
 		GeminiAPIKey:   getEnv("GEMINI_API_KEY", ""),
 		GeminiModel:    getEnv("GEMINI_MODEL", "gemini-2.5-flash"),
 		LLMTimeoutSecs: getEnvAsInt("LLM_TIMEOUT_SECONDS", 15),
@@ -149,8 +155,19 @@ func Load() (*Config, error) {
 	if cfg.DemoAuthEnabled && cfg.Environment != "development" && cfg.Environment != "test" {
 		return nil, fmt.Errorf("DEMO_AUTH_ENABLED is permitted only in development or test")
 	}
-	if cfg.LLMEnabled && (cfg.LLMProvider != "gemini" || cfg.GeminiAPIKey == "") {
-		return nil, fmt.Errorf("LLM_ENABLED requires the supported gemini provider and an API key")
+	if cfg.LLMEnabled {
+		switch cfg.LLMProvider {
+		case "gemini":
+			if cfg.GeminiAPIKey == "" {
+				return nil, fmt.Errorf("LLM_ENABLED with gemini requires GEMINI_API_KEY")
+			}
+		case "openai_compatible":
+			if cfg.LLMBaseURL == "" || cfg.LLMModel == "" {
+				return nil, fmt.Errorf("LLM_ENABLED with openai_compatible requires LLM_BASE_URL and LLM_MODEL")
+			}
+		default:
+			return nil, fmt.Errorf("LLM_ENABLED requires provider gemini or openai_compatible")
+		}
 	}
 	if !cfg.TelegramMockMode && cfg.TelegramAppID != 0 && (cfg.TelegramSessionStorageKey == "" || cfg.TelegramSessionStorageKey == "perso-mtproto-session-encryption-key-32b!") {
 		return nil, fmt.Errorf("real Telegram mode requires a non-default session encryption key")
