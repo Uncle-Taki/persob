@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/perso/perso-mind/internal/analytics"
 	"github.com/perso/perso-mind/internal/api/httputil"
+	"github.com/perso/perso-mind/internal/domain"
 	"github.com/perso/perso-mind/internal/storage/postgres"
 )
 
@@ -81,8 +82,22 @@ func (h *ProductHandler) GetStatistics(w http.ResponseWriter, r *http.Request) {
 		httputil.RespondError(w, http.StatusBadRequest, "Invalid product ID")
 		return
 	}
+	product, err := h.productRepo.GetByID(r.Context(), id)
+	if err != nil {
+		httputil.RespondError(w, http.StatusInternalServerError, "Failed to get product")
+		return
+	}
+	if product == nil {
+		httputil.RespondError(w, http.StatusNotFound, "Product not found")
+		return
+	}
 
-	stats, err := h.analyticsEngine.CalculateProductStatistics(r.Context(), id)
+	var stats *domain.PriceStatistics
+	if isWorkspaceAdmin(r) {
+		stats, err = h.analyticsEngine.CalculateProductStatistics(r.Context(), id)
+	} else {
+		stats, err = h.analyticsEngine.CalculateProductStatisticsForUser(r.Context(), id, httputil.GetUserIDFromContext(r.Context()))
+	}
 	if err != nil {
 		httputil.RespondError(w, http.StatusInternalServerError, "Failed to calculate statistics")
 		return
