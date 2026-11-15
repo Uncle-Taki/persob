@@ -28,7 +28,11 @@ var (
 	citiesRegex = regexp.MustCompile(`(?i)(تهران|مشهد|اصفهان|شیراز|تبریز|کرج|اهواز|قم|رشت|ارومیه|یزد|ساری|کرمان|همدان|کیش)`)
 
 	// Tehran districts / tech markets (avoiding ASCII-only \b)
-	tehranAreasRegex = regexp.MustCompile(`(?i)(علاءالدین|چارسو|پایتخت|بازار موبایل|سعادت آباد|شهرک غرب|تجریش|پونک|صادقیه|ولیعصر|ونک|ستارخان|جنت آباد|تهرانپارس|رسالت|سیدخندان|نارمک)`)
+	tehranAreasRegex    = regexp.MustCompile(`(?i)(علاءالدین|چارسو|پایتخت|بازار موبایل|سعادت آباد|شهرک غرب|تجریش|پونک|صادقیه|ولیعصر|ونک|ستارخان|جنت آباد|تهرانپارس|رسالت|سیدخندان|نارمک)`)
+	healthcareFormRegex = regexp.MustCompile(`(?i)(قرص|کپسول|آمپول|امپول|شربت|سرم|پماد|کرم|اسپری|قطره|ماسک|دستکش|گاز|باند|سرنگ|انسولین|لوازم پزشکی)`)
+	healthcareNameRegex = regexp.MustCompile(`(?i)(?:قرص|کپسول|آمپول|امپول|شربت|سرم|پماد|کرم|اسپری|قطره|ماسک|دستکش|گاز|باند|سرنگ|انسولین)\s+([\p{L}][\p{L}\x{200c}-]*(?:\s+[\p{L}][\p{L}\x{200c}-]*){0,1})`)
+	strengthRegex       = regexp.MustCompile(`(?i)([0-9۰-۹]+\s*(?:mg|میلی\s*گرم|g|گرم|ml|میلی\s*لیتر|٪|%|درصد))`)
+	packSizeRegex       = regexp.MustCompile(`(?i)(?:بسته|پک|جعبه)\s*([0-9۰-۹]+)\s*(?:عدد|حلقه|دستگاه)?`)
 )
 
 type Extractor struct{}
@@ -208,7 +212,7 @@ func (e *Extractor) extractProductDetails(normText, originalText string) *domain
 	// Brand and Model detection heuristics
 	brand, model, name := detectBrandAndModel(normText)
 	if name == "" {
-		return nil
+		return e.extractHealthcareProduct(normText, originalText, condition, quantity)
 	}
 
 	return &domain.ExtractedProduct{
@@ -222,6 +226,36 @@ func (e *Extractor) extractProductDetails(normText, originalText string) *domain
 		Confidence:   0.85,
 		EvidenceSpan: name,
 	}
+}
+
+func (e *Extractor) extractHealthcareProduct(normText, originalText string, condition domain.ItemCondition, quantity int) *domain.ExtractedProduct {
+	form := healthcareFormRegex.FindString(normText)
+	if form == "" {
+		return nil
+	}
+	m := healthcareNameRegex.FindStringSubmatch(normText)
+	name := ""
+	if len(m) > 1 {
+		name = strings.TrimSpace(m[1])
+	}
+	if name == "" {
+		name = form
+	}
+	strength := ""
+	if sm := strengthRegex.FindStringSubmatch(normText); len(sm) > 1 {
+		strength = strings.TrimSpace(sm[1])
+	}
+	pack := 0
+	if pm := packSizeRegex.FindStringSubmatch(normText); len(pm) > 1 {
+		if n, err := nlp.ParsePersianNumber(pm[1]); err == nil && n > 0 && n < 100000 {
+			pack = int(n)
+		}
+	}
+	variant := strength
+	if pack > 0 {
+		variant = strings.TrimSpace(variant + " " + strconv.Itoa(pack))
+	}
+	return &domain.ExtractedProduct{Name: name, Variant: variant, DosageForm: form, Strength: strength, PackSize: pack, Unit: "unit", Condition: condition, Quantity: quantity, Confidence: 0.78, EvidenceSpan: originalText}
 }
 
 func detectBrandAndModel(text string) (brand, model, fullName string) {

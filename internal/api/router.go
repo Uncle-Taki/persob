@@ -110,6 +110,7 @@ func NewRouter(h *Handlers) http.Handler {
 		r.Route("/interests", func(r chi.Router) {
 			r.Get("/", h.InterestHandler.List)
 			r.Post("/", h.InterestHandler.Create)
+			r.Patch("/{id}", h.InterestHandler.Update)
 			r.Delete("/{id}", h.InterestHandler.Delete)
 		})
 
@@ -142,7 +143,9 @@ func NewRouter(h *Handlers) http.Handler {
 		// Products
 		r.Route("/products", func(r chi.Router) {
 			r.Get("/", h.ProductHandler.List)
+			r.Post("/", h.ProductHandler.Create)
 			r.Get("/{id}", h.ProductHandler.GetByID)
+			r.Patch("/{id}", h.ProductHandler.Update)
 			r.Get("/{id}/statistics", h.ProductHandler.GetStatistics)
 		})
 

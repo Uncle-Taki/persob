@@ -23,8 +23,8 @@ func (r *ProductRepo) Create(ctx context.Context, p *domain.Product) error {
 		p.ID = uuid.New()
 	}
 	query := `
-		INSERT INTO products (id, name, normalized_name, brand, manufacturer, model, category, attributes)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		INSERT INTO products (id, name, normalized_name, brand, manufacturer, model, category, attributes, unit, pack_size, prescription_required, expiry_required)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 		RETURNING created_at, updated_at
 	`
 	attrs := p.Attributes
@@ -33,20 +33,36 @@ func (r *ProductRepo) Create(ctx context.Context, p *domain.Product) error {
 	}
 
 	return r.db.Pool.QueryRow(ctx, query,
-		p.ID, p.Name, p.NormalizedName, p.Brand, p.Manufacturer, p.Model, p.Category, attrs,
+		p.ID, p.Name, p.NormalizedName, p.Brand, p.Manufacturer, p.Model, p.Category, attrs, p.Unit, p.PackSize, p.PrescriptionRequired, p.ExpiryRequired,
 	).Scan(&p.CreatedAt, &p.UpdatedAt)
+}
+
+func (r *ProductRepo) Update(ctx context.Context, id uuid.UUID, req domain.UpdateProductRequest) (*domain.Product, error) {
+	attrs := req.Attributes
+	if len(attrs) == 0 {
+		attrs = nil
+	}
+	var p domain.Product
+	err := r.db.Pool.QueryRow(ctx, `UPDATE products SET name=COALESCE($2,name),normalized_name=COALESCE($3,normalized_name),brand=COALESCE($4,brand),manufacturer=COALESCE($5,manufacturer),model=COALESCE($6,model),category=COALESCE($7,category),attributes=COALESCE($8,attributes),unit=COALESCE($9,unit),pack_size=COALESCE($10,pack_size),prescription_required=COALESCE($11,prescription_required),expiry_required=COALESCE($12,expiry_required),updated_at=NOW() WHERE id=$1 RETURNING id,name,normalized_name,brand,COALESCE(manufacturer,''),model,category,attributes,unit,pack_size,prescription_required,expiry_required,created_at,updated_at`, id, req.Name, req.NormalizedName, req.Brand, req.Manufacturer, req.Model, req.Category, attrs, req.Unit, req.PackSize, req.PrescriptionRequired, req.ExpiryRequired).Scan(&p.ID, &p.Name, &p.NormalizedName, &p.Brand, &p.Manufacturer, &p.Model, &p.Category, &p.Attributes, &p.Unit, &p.PackSize, &p.PrescriptionRequired, &p.ExpiryRequired, &p.CreatedAt, &p.UpdatedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("update product: %w", err)
+	}
+	return &p, nil
 }
 
 func (r *ProductRepo) GetByID(ctx context.Context, id uuid.UUID) (*domain.Product, error) {
 	query := `
-		SELECT id, name, normalized_name, brand, manufacturer, model, category, attributes, created_at, updated_at
+		SELECT id, name, normalized_name, brand, manufacturer, model, category, attributes, unit, pack_size, prescription_required, expiry_required, created_at, updated_at
 		FROM products WHERE id = $1
 	`
 	var p domain.Product
 	var manufacturer *string
 
 	err := r.db.Pool.QueryRow(ctx, query, id).Scan(
-		&p.ID, &p.Name, &p.NormalizedName, &p.Brand, &manufacturer, &p.Model, &p.Category, &p.Attributes, &p.CreatedAt, &p.UpdatedAt,
+		&p.ID, &p.Name, &p.NormalizedName, &p.Brand, &manufacturer, &p.Model, &p.Category, &p.Attributes, &p.Unit, &p.PackSize, &p.PrescriptionRequired, &p.ExpiryRequired, &p.CreatedAt, &p.UpdatedAt,
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -93,7 +109,7 @@ func (r *ProductRepo) List(ctx context.Context, limit, offset int, search, categ
 	}
 
 	query = fmt.Sprintf(`
-		SELECT id, name, normalized_name, brand, manufacturer, model, category, attributes, created_at, updated_at
+		SELECT id, name, normalized_name, brand, manufacturer, model, category, attributes, unit, pack_size, prescription_required, expiry_required, created_at, updated_at
 		FROM products %s
 		ORDER BY created_at DESC
 		LIMIT $%d OFFSET $%d
@@ -111,7 +127,7 @@ func (r *ProductRepo) List(ctx context.Context, limit, offset int, search, categ
 	for rows.Next() {
 		var p domain.Product
 		var manufacturer *string
-		if err := rows.Scan(&p.ID, &p.Name, &p.NormalizedName, &p.Brand, &manufacturer, &p.Model, &p.Category, &p.Attributes, &p.CreatedAt, &p.UpdatedAt); err != nil {
+		if err := rows.Scan(&p.ID, &p.Name, &p.NormalizedName, &p.Brand, &manufacturer, &p.Model, &p.Category, &p.Attributes, &p.Unit, &p.PackSize, &p.PrescriptionRequired, &p.ExpiryRequired, &p.CreatedAt, &p.UpdatedAt); err != nil {
 			return nil, 0, fmt.Errorf("scan product: %w", err)
 		}
 		if manufacturer != nil {

@@ -73,6 +73,10 @@ type ExtractedProduct struct {
 	Manufacturer string        `bson:"manufacturer,omitempty" json:"manufacturer,omitempty"`
 	Model        string        `bson:"model,omitempty" json:"model,omitempty"`
 	Variant      string        `bson:"variant,omitempty" json:"variant,omitempty"`
+	DosageForm   string        `bson:"dosage_form,omitempty" json:"dosage_form,omitempty"`
+	Strength     string        `bson:"strength,omitempty" json:"strength,omitempty"`
+	PackSize     int           `bson:"pack_size,omitempty" json:"pack_size,omitempty"`
+	Unit         string        `bson:"unit,omitempty" json:"unit,omitempty"`
 	Condition    ItemCondition `bson:"condition" json:"condition"`
 	Quantity     int           `bson:"quantity" json:"quantity"`
 	EvidenceSpan string        `bson:"evidence_span,omitempty" json:"evidence_span,omitempty"`
