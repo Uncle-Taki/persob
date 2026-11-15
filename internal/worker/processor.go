@@ -328,16 +328,13 @@ func (p *MessageProcessor) handleSellerAdvertisement(
 		slog.Info("persisted seller offer to postgresql", "offer_id", offer.ID, "source_id", sourceMsgID, "product", extProd.Name)
 
 		// 3. Match against buyer interests and store offer_match_results
-		if productID != nil && p.matchResultRepo != nil && p.interestRepo != nil {
-			interests, err := p.interestRepo.FindInterestsByProductID(ctx, *productID)
+		if productID != nil && sourceID != nil && p.matchResultRepo != nil && p.interestRepo != nil {
+			interests, err := p.interestRepo.FindAssignedInterestsByProductID(ctx, *productID, *sourceID)
 			if err != nil {
 				return fmt.Errorf("load purchase interests: %w", err)
 			}
 			{
 				for _, interest := range interests {
-					if interest.UserID != *p.cfg.OwnerID() {
-						continue
-					}
 					score := 85.0
 					if offer.Condition == domain.ConditionNew || offer.Condition == domain.ConditionLikeNew {
 						score += 10.0

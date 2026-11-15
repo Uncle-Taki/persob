@@ -126,3 +126,22 @@ func (r *InterestRepo) FindInterestsByProductID(ctx context.Context, productID u
 	}
 	return interests, nil
 }
+
+// FindAssignedInterestsByProductID returns buyer interests whose source grant
+// is live for the exact listing provenance.
+func (r *InterestRepo) FindAssignedInterestsByProductID(ctx context.Context, productID, sourceID uuid.UUID) ([]domain.Interest, error) {
+	rows, err := r.db.Pool.Query(ctx, `SELECT DISTINCT i.id,i.user_id,i.product_id,i.sell_enabled,i.buy_enabled,i.created_at FROM interests i JOIN source_assignments sa ON sa.buyer_id=i.user_id AND sa.source_id=$2 WHERE i.product_id=$1 AND i.buy_enabled=true`, productID, sourceID)
+	if err != nil {
+		return nil, fmt.Errorf("find assigned interests: %w", err)
+	}
+	defer rows.Close()
+	var interests []domain.Interest
+	for rows.Next() {
+		var item domain.Interest
+		if err := rows.Scan(&item.ID, &item.UserID, &item.ProductID, &item.SellEnabled, &item.BuyEnabled, &item.CreatedAt); err != nil {
+			return nil, fmt.Errorf("scan assigned interest: %w", err)
+		}
+		interests = append(interests, item)
+	}
+	return interests, rows.Err()
+}
