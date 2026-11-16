@@ -19,7 +19,7 @@ RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /app/bin/perso ./cmd/p
 # ==========================================
 # Runtime Stage
 # ==========================================
-FROM alpine:3.23
+FROM alpine:3.24.4
 
 # Refresh the runtime layer's Alpine packages before installing application dependencies.
 RUN apk upgrade --no-cache && apk add --no-cache ca-certificates tzdata
