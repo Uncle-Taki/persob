@@ -8,7 +8,7 @@ RUN go mod download
 COPY . .
 RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /app/bin/llm-mock ./cmd/llm-mock
 
-FROM alpine:3.23
+FROM alpine:3.24.4
 RUN apk upgrade --no-cache && apk add --no-cache ca-certificates tzdata wget
 RUN addgroup -g 10001 -S perso && adduser -u 10001 -S perso -G perso
 COPY --from=builder /app/bin/llm-mock /app/llm-mock

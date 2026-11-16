@@ -89,9 +89,10 @@ func TestSourceAssignmentAdministrationAndConcurrentReplacement(t *testing.T) {
 	buyer := newBrowser(server.URL)
 	buyer.login(t, "assignedbuyer", password)
 	buyer.request(t, "GET", path, nil, 403)
-	buyer.request(t, "GET", "/api/v1/sources", nil, 200)
-	buyer.request(t, "GET", "/api/v1/sources/"+source.ID.String(), nil, 200)
-	buyer.request(t, "GET", "/api/v1/offers", nil, 200)
+	buyer.request(t, "GET", "/api/v1/sources", nil, 204)
+	// Source details are deliberately absent from this identity-only router.
+	buyer.request(t, "GET", "/api/v1/sources/"+source.ID.String(), nil, 404)
+	buyer.request(t, "GET", "/api/v1/offers", nil, 204)
 	buyer.request(t, "GET", "/api/v1/watch-sources", nil, 403)
 	buyer.request(t, "PUT", path, map[string]any{"buyer_ids": []uuid.UUID{buyerA}, "version": 1}, 403)
 	req, _ := http.NewRequest("PUT", server.URL+path, strings.NewReader(`{"buyer_ids":[],"version":1}`))

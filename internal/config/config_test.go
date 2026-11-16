@@ -25,3 +25,17 @@ func TestUnsafeModesFailClosed(t *testing.T) {
 		})
 	}
 }
+
+func TestHealthcareMockRequiresExplicitLocalMockMode(t *testing.T) {
+	t.Setenv("TELEGRAM_MOCK_HEALTHCARE", "true")
+	t.Setenv("TELEGRAM_MOCK_MODE", "false")
+	t.Setenv("ENVIRONMENT", "test")
+	if _, err := Load(); err == nil {
+		t.Fatal("healthcare fixture admitted with a real Telegram account")
+	}
+	t.Setenv("TELEGRAM_MOCK_MODE", "true")
+	t.Setenv("ENVIRONMENT", "production")
+	if _, err := Load(); err == nil {
+		t.Fatal("healthcare fixture admitted in production")
+	}
+}

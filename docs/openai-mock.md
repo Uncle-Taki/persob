@@ -14,6 +14,8 @@ The extraction adapter validates the response against the existing LLM schema an
 
 ## Local demo
 
-The demo Compose overlay enables the provider and points the backend and worker at `http://llm-mock:8091/v1` with model `perso-healthcare-mock`. The mock returns different deterministic outputs for the synthetic Persian healthcare fixture (`سرم نرمال سالین`), an iPhone fixture, and unknown text. Set `ENVIRONMENT=development` or `test` and `LLM_MOCK_SCENARIO` to `rate_limit`, `server_error`, `malformed`, or `timeout` to exercise failure handling. Failure scenarios are refused in production.
+The demo Compose overlay enables the provider and points the worker at `http://llm-mock:8091/v1` with model `perso-healthcare-mock`. The mock returns different deterministic outputs for the synthetic Persian healthcare fixture (`سرم نرمال سالین`), an iPhone fixture, and unknown text. Set `ENVIRONMENT=development` or `test` and `LLM_MOCK_SCENARIO` to `rate_limit`, `server_error`, `malformed`, or `timeout` to exercise failure handling. Failure scenarios are refused in production.
 
 The mock is synthetic infrastructure only. It does not call an external provider, store messages, or send seller communications.
+
+Step 8 isolates this service to `compose.demo.yaml`; production Compose has no mock dependency. Demo setup generates a private `LLM_MOCK_TOKEN`. Canonical migrations finish before the demo seed runs. `TELEGRAM_MOCK_HEALTHCARE=true` selects the synthetic saline message only in development/test with mock Telegram mode. The release rehearsal requires a persisted successful `openai-compatible (perso-healthcare-mock)` extraction and no outbound messages.

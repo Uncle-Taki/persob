@@ -9,8 +9,8 @@ require (
 	github.com/jackc/pgx/v5 v5.13.0
 	github.com/redis/go-redis/v9 v9.23.0
 	go.mongodb.org/mongo-driver v1.17.10
-	golang.org/x/crypto v0.57.0
-	golang.org/x/sync v0.23.0
+	golang.org/x/crypto v0.58.0
+	golang.org/x/sync v0.24.0
 	golang.org/x/term v0.48.0
 )
 
@@ -54,10 +54,10 @@ require (
 	go.uber.org/zap v1.28.0 // indirect
 	golang.org/x/exp v0.0.0-20230725093048-515e97ebf090 // indirect
 	golang.org/x/mod v0.41.0 // indirect
-	golang.org/x/net v0.60.0 // indirect
+	golang.org/x/net v0.62.0 // indirect
 	golang.org/x/sys v0.50.0 // indirect
-	golang.org/x/text v0.42.0 // indirect
-	golang.org/x/tools v0.49.0 // indirect
+	golang.org/x/text v0.43.0 // indirect
+	golang.org/x/tools v0.51.0 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 	rsc.io/qr v0.2.0 // indirect
 )
