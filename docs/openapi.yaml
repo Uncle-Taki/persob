@@ -52,6 +52,17 @@ paths:
                 product_id:
                   type: string
                   format: uuid
+                max_price_amount:
+                  type: integer
+                  minimum: 0
+                min_quantity:
+                  type: integer
+                  minimum: 1
+                preferred_city:
+                  type: string
+                required_attributes:
+                  type: object
+                  additionalProperties: true
       responses:
         '201':
           description: 'Interest created (Phase 1: buy_enabled=true, sell_enabled=false)'
@@ -59,6 +70,32 @@ paths:
       - sessionCookie: []
         csrfToken: []
   /api/v1/interests/{id}:
+    patch:
+      summary: Update personal healthcare interest filters
+      operationId: updateInterest
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateInterestRequest'
+      responses:
+        '200':
+          description: Interest filters updated
+        '400':
+          description: Invalid filter values
+        '404':
+          description: Interest not found or not owned by the user
+      security:
+      - sessionCookie: []
+        csrfToken: []
     delete:
       summary: Remove product from interest list
       operationId: deleteInterest
@@ -157,6 +194,23 @@ paths:
       responses:
         '200':
           description: Products catalog list
+    post:
+      summary: Create a healthcare catalog product
+      operationId: createProduct
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateProductRequest'
+      responses:
+        '201':
+          description: Product created
+        '403':
+          description: Administrator access required
+      security:
+      - sessionCookie: []
+        csrfToken: []
   /api/v1/products/{id}:
     get:
       summary: Get product details with aliases
@@ -171,6 +225,32 @@ paths:
       responses:
         '200':
           description: Product details
+    patch:
+      summary: Update a healthcare catalog product
+      operationId: updateProduct
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateProductRequest'
+      responses:
+        '200':
+          description: Product updated
+        '403':
+          description: Administrator access required
+        '404':
+          description: Product not found
+      security:
+      - sessionCookie: []
+        csrfToken: []
   /api/v1/products/{id}/statistics:
     get:
       summary: Get calculated price statistics and distribution for a product
@@ -1246,6 +1326,55 @@ components:
         attributes:
           type: object
           additionalProperties: true
+        unit:
+          type: string
+        pack_size:
+          type: integer
+          minimum: 1
+        prescription_required:
+          type: boolean
+        expiry_required:
+          type: boolean
+    CreateProductRequest:
+      type: object
+      required:
+      - name
+      - category
+      properties:
+        name: *id007
+        normalized_name: *id007
+        brand: *id007
+        manufacturer: *id007
+        model: *id007
+        category: *id007
+        attributes:
+          type: object
+          additionalProperties: true
+        unit: *id007
+        pack_size:
+          type: integer
+          minimum: 1
+        prescription_required: *id011
+        expiry_required: *id011
+    UpdateProductRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        name: *id007
+        normalized_name: *id007
+        brand: *id007
+        manufacturer: *id007
+        model: *id007
+        category: *id007
+        attributes:
+          type: object
+          additionalProperties: true
+        unit: *id007
+        pack_size:
+          type: integer
+          minimum: 1
+        prescription_required: *id011
+        expiry_required: *id011
     Offer:
       type: object
       required:
@@ -1350,8 +1479,35 @@ components:
         user_id: *id008
         buy_enabled: *id011
         sell_enabled: *id011
+        max_price_amount:
+          type: integer
+          minimum: 0
+        min_quantity:
+          type: integer
+          minimum: 1
+        preferred_city: *id007
+        required_attributes:
+          type: object
+          additionalProperties: true
         product:
           $ref: '#/components/schemas/Product'
+    UpdateInterestRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        max_price_amount:
+          type: integer
+          minimum: 0
+          nullable: true
+        min_quantity:
+          type: integer
+          minimum: 1
+          nullable: true
+        preferred_city:
+          type: string
+        required_attributes:
+          type: object
+          additionalProperties: true
     TelegramSource:
       type: object
       required:

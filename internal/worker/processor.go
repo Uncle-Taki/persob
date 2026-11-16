@@ -339,6 +339,9 @@ func (p *MessageProcessor) handleSellerAdvertisement(
 					if !interestMatchesOffer(interest, offer) {
 						continue
 					}
+					if !interestMatchesOffer(interest, offer) {
+						continue
+					}
 					score := 85.0
 					if offer.Condition == domain.ConditionNew || offer.Condition == domain.ConditionLikeNew {
 						score += 10.0
