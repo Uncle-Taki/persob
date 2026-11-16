@@ -176,8 +176,9 @@ func TestIdentityLifecycle(t *testing.T) {
 	buyer.request(t, "PATCH", "/api/v1/me", map[string]string{"role": "super_admin"}, 403)
 	buyer.request(t, "POST", "/api/v1/users", map[string]string{"username": "illegal", "password": password, "role": "buyer"}, 403)
 	buyer.request(t, "GET", "/api/v1/users", nil, 403)
-	buyer.request(t, "GET", "/api/v1/offers", nil, 200)
-	buyer.request(t, "GET", "/api/v1/products/"+uuid.NewString()+"/statistics", nil, 404)
+	// This identity-only router uses 204 sentinels, not marketplace handlers.
+	buyer.request(t, "GET", "/api/v1/offers", nil, 204)
+	buyer.request(t, "GET", "/api/v1/products/"+uuid.NewString()+"/statistics", nil, 204)
 	buyer.request(t, "GET", "/api/v1/watch-sources", nil, 403)
 	buyer.request(t, "PATCH", "/api/v1/me/preferences", map[string]string{"language": "en", "preferred_city": "تهران", "number_format": "latin"}, 200)
 	buyer.request(t, "PATCH", "/api/v1/me", map[string]string{"full_name": "Buyer One", "email": "one@example.test"}, 200)

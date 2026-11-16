@@ -65,6 +65,7 @@ type Config struct {
 	TelegramSessionDir        string
 	TelegramSessionStorageKey string
 	TelegramMockMode          bool
+	TelegramMockHealthcare    bool
 
 	// LLM
 	LLMEnabled     bool
@@ -128,6 +129,7 @@ func Load() (*Config, error) {
 		TelegramSessionDir:        getEnv("TELEGRAM_SESSION_DIR", "./sessions"),
 		TelegramSessionStorageKey: getEnv("TELEGRAM_SESSION_STORAGE_KEY", "perso-mtproto-session-encryption-key-32b!"),
 		TelegramMockMode:          getEnvAsBool("TELEGRAM_MOCK_MODE", false),
+		TelegramMockHealthcare:    getEnvAsBool("TELEGRAM_MOCK_HEALTHCARE", false),
 
 		// LLM disabled by default for privacy & Telegram Terms compliance
 		LLMEnabled:     getEnvAsBool("LLM_ENABLED", false),
@@ -149,6 +151,9 @@ func Load() (*Config, error) {
 		ConversationAutoApprove:  getEnvAsBool("CONVERSATION_AUTO_APPROVE", false),
 	}
 
+	if cfg.TelegramMockHealthcare && (!cfg.TelegramMockMode || (cfg.Environment != "development" && cfg.Environment != "test")) {
+		return nil, fmt.Errorf("TELEGRAM_MOCK_HEALTHCARE requires development/test and TELEGRAM_MOCK_MODE")
+	}
 	if cfg.Environment == "production" && !cfg.AuthCookieSecure {
 		return nil, fmt.Errorf("production requires AUTH_COOKIE_SECURE=true")
 	}

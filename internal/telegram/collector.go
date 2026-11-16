@@ -138,6 +138,12 @@ func (c *Collector) runMockLoop(ctx context.Context) error {
 				MessageDate:       time.Now(),
 				ReceivedAt:        time.Now(),
 			}
+			if c.cfg.TelegramMockHealthcare {
+				demoMsg.ChatTitle = "بازار آزمایشی سلامت"
+				demoMsg.SenderUsername = "perso_synthetic_supplier"
+				demoMsg.SenderDisplayName = "فروشنده آزمایشی"
+				demoMsg.MessageText = "فروش سرم نرمال سالین 500ml تعداد ۱۲ عدد، ۲۵۰۰۰ تومان، تهران پاستور"
+			}
 			slog.Info("injecting mock demo marketplace message...")
 			if err := c.mockClient.InjectMessage(ctx, demoMsg); err != nil {
 				slog.Error("failed to inject demo message", "error", err)
