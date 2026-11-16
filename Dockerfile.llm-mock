@@ -2,14 +2,20 @@ FROM golang:1.26.11-alpine AS builder
 
 WORKDIR /app
 ENV GOTOOLCHAIN=auto
-RUN apk add --no-cache ca-certificates
+ARG ALPINE_MIRROR=https://mirrors.aliyun.com/alpine
+ARG GOPROXY=https://goproxy.cn,direct
+ENV GOPROXY=${GOPROXY}
+RUN sed -i "s#https://dl-cdn.alpinelinux.org/alpine#${ALPINE_MIRROR}#g" /etc/apk/repositories && \
+    apk add --no-cache ca-certificates
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
 RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /app/bin/llm-mock ./cmd/llm-mock
 
 FROM alpine:3.24.4
-RUN apk upgrade --no-cache && apk add --no-cache ca-certificates tzdata wget
+ARG ALPINE_MIRROR=https://mirrors.aliyun.com/alpine
+RUN sed -i "s#https://dl-cdn.alpinelinux.org/alpine#${ALPINE_MIRROR}#g" /etc/apk/repositories && \
+    apk upgrade --no-cache && apk add --no-cache ca-certificates tzdata wget
 RUN addgroup -g 10001 -S perso && adduser -u 10001 -S perso -G perso
 COPY --from=builder /app/bin/llm-mock /app/llm-mock
 USER perso:perso

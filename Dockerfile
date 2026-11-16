@@ -6,7 +6,11 @@ FROM golang:1.26.11-alpine AS builder
 WORKDIR /app
 
 ENV GOTOOLCHAIN=auto
-RUN apk add --no-cache git ca-certificates tzdata
+ARG ALPINE_MIRROR=https://mirrors.aliyun.com/alpine
+ARG GOPROXY=https://goproxy.cn,direct
+ENV GOPROXY=${GOPROXY}
+RUN sed -i "s#https://dl-cdn.alpinelinux.org/alpine#${ALPINE_MIRROR}#g" /etc/apk/repositories && \
+    apk add --no-cache git ca-certificates tzdata
 
 COPY go.mod go.sum ./
 RUN go mod download
@@ -22,7 +26,9 @@ RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /app/bin/perso ./cmd/p
 FROM alpine:3.24.4
 
 # Refresh the runtime layer's Alpine packages before installing application dependencies.
-RUN apk upgrade --no-cache && apk add --no-cache ca-certificates tzdata
+ARG ALPINE_MIRROR=https://mirrors.aliyun.com/alpine
+RUN sed -i "s#https://dl-cdn.alpinelinux.org/alpine#${ALPINE_MIRROR}#g" /etc/apk/repositories && \
+    apk upgrade --no-cache && apk add --no-cache ca-certificates tzdata
 
 # Create non-root user
 RUN addgroup -g 10001 -S perso && \
