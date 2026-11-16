@@ -5,8 +5,8 @@ info:
     discovery platform. Initial focus: Iranian electronic marketplace.
 
 
-    Identity checkpoint: password accounts and server-side sessions; buyer shared-marketplace access remains
-    disabled until source assignments in step 3.'
+    Identity checkpoint: password accounts and server-side sessions; buyer marketplace access is scoped by live
+    source assignments from step 3B.'
   version: 1.0.0
 servers:
 - url: http://localhost:8080
@@ -1091,7 +1091,7 @@ paths:
       - sessionCookie: []
       responses: &id006
         '200':
-          description: Current explicit grants; buyer marketplace remains blocked until step 3B.
+          description: Current explicit grants; buyer marketplace access is controlled by these live grants.
           content:
             application/json:
               schema:

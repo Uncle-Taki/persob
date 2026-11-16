@@ -8,17 +8,49 @@ import (
 )
 
 type Product struct {
-	ID             uuid.UUID       `json:"id"`
-	Name           string          `json:"name"`
-	NormalizedName string          `json:"normalized_name"`
-	Brand          string          `json:"brand"`
-	Manufacturer   string          `json:"manufacturer,omitempty"`
-	Model          string          `json:"model"`
-	Category       string          `json:"category"`
-	Attributes     json.RawMessage `json:"attributes,omitempty"`
-	CreatedAt      time.Time       `json:"created_at"`
-	UpdatedAt      time.Time       `json:"updated_at"`
-	Aliases        []ProductAlias  `json:"aliases,omitempty"`
+	ID                   uuid.UUID       `json:"id"`
+	Name                 string          `json:"name"`
+	NormalizedName       string          `json:"normalized_name"`
+	Brand                string          `json:"brand"`
+	Manufacturer         string          `json:"manufacturer,omitempty"`
+	Model                string          `json:"model"`
+	Category             string          `json:"category"`
+	Attributes           json.RawMessage `json:"attributes,omitempty"`
+	Unit                 string          `json:"unit,omitempty"`
+	PackSize             *int            `json:"pack_size,omitempty"`
+	PrescriptionRequired bool            `json:"prescription_required"`
+	ExpiryRequired       bool            `json:"expiry_required"`
+	CreatedAt            time.Time       `json:"created_at"`
+	UpdatedAt            time.Time       `json:"updated_at"`
+	Aliases              []ProductAlias  `json:"aliases,omitempty"`
+}
+
+type CreateProductRequest struct {
+	Name                 string          `json:"name"`
+	NormalizedName       string          `json:"normalized_name,omitempty"`
+	Brand                string          `json:"brand,omitempty"`
+	Manufacturer         string          `json:"manufacturer,omitempty"`
+	Model                string          `json:"model,omitempty"`
+	Category             string          `json:"category"`
+	Attributes           json.RawMessage `json:"attributes,omitempty"`
+	Unit                 string          `json:"unit,omitempty"`
+	PackSize             *int            `json:"pack_size,omitempty"`
+	PrescriptionRequired bool            `json:"prescription_required"`
+	ExpiryRequired       bool            `json:"expiry_required"`
+}
+
+type UpdateProductRequest struct {
+	Name                 *string         `json:"name,omitempty"`
+	NormalizedName       *string         `json:"normalized_name,omitempty"`
+	Brand                *string         `json:"brand,omitempty"`
+	Manufacturer         *string         `json:"manufacturer,omitempty"`
+	Model                *string         `json:"model,omitempty"`
+	Category             *string         `json:"category,omitempty"`
+	Attributes           json.RawMessage `json:"attributes,omitempty"`
+	Unit                 *string         `json:"unit,omitempty"`
+	PackSize             *int            `json:"pack_size,omitempty"`
+	PrescriptionRequired *bool           `json:"prescription_required,omitempty"`
+	ExpiryRequired       *bool           `json:"expiry_required,omitempty"`
 }
 
 type ProductAlias struct {

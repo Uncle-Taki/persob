@@ -1,0 +1,17 @@
+FROM golang:1.26.11-alpine AS builder
+
+WORKDIR /app
+ENV GOTOOLCHAIN=auto
+RUN apk add --no-cache ca-certificates
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /app/bin/llm-mock ./cmd/llm-mock
+
+FROM alpine:3.23
+RUN apk upgrade --no-cache && apk add --no-cache ca-certificates tzdata wget
+RUN addgroup -g 10001 -S perso && adduser -u 10001 -S perso -G perso
+COPY --from=builder /app/bin/llm-mock /app/llm-mock
+USER perso:perso
+EXPOSE 8091
+ENTRYPOINT ["/app/llm-mock"]

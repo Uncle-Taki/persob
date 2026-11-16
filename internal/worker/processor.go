@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -335,6 +336,9 @@ func (p *MessageProcessor) handleSellerAdvertisement(
 			}
 			{
 				for _, interest := range interests {
+					if !interestMatchesOffer(interest, offer) {
+						continue
+					}
 					score := 85.0
 					if offer.Condition == domain.ConditionNew || offer.Condition == domain.ConditionLikeNew {
 						score += 10.0
@@ -431,6 +435,25 @@ func (p *MessageProcessor) handleSellerAdvertisement(
 	}
 
 	return p.offerRepo.RetireMissing(ctx, sourceMsgID, revision, keys)
+}
+
+func interestMatchesOffer(interest domain.Interest, offer *domain.Offer) bool {
+	if interest.MaxPriceAmount != nil && offer.PriceAmount != nil {
+		price := *offer.PriceAmount
+		if offer.PriceCurrency == domain.CurrencyRial {
+			price /= 10
+		}
+		if price > *interest.MaxPriceAmount {
+			return false
+		}
+	}
+	if interest.MinQuantity != nil && offer.Quantity < *interest.MinQuantity {
+		return false
+	}
+	if interest.PreferredCity != "" && !strings.EqualFold(strings.TrimSpace(interest.PreferredCity), strings.TrimSpace(offer.SellerCity)) {
+		return false
+	}
+	return true
 }
 
 func (p *MessageProcessor) SetSourceRepo(r *postgres.TelegramSourceRepo) { p.sourceRepo = r }

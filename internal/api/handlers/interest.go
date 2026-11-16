@@ -48,6 +48,21 @@ func (h *InterestHandler) Create(w http.ResponseWriter, r *http.Request) {
 		httputil.RespondError(w, http.StatusBadRequest, "product_id is required")
 		return
 	}
+	if req.MaxPriceAmount != nil && *req.MaxPriceAmount < 0 {
+		httputil.RespondError(w, http.StatusBadRequest, "max_price_amount must be nonnegative")
+		return
+	}
+	if req.MinQuantity != nil && *req.MinQuantity <= 0 {
+		httputil.RespondError(w, http.StatusBadRequest, "min_quantity must be positive")
+		return
+	}
+	if req.RequiredAttributes != nil {
+		var attrs map[string]any
+		if json.Unmarshal(req.RequiredAttributes, &attrs) != nil {
+			httputil.RespondError(w, http.StatusBadRequest, "required_attributes must be a JSON object")
+			return
+		}
+	}
 
 	// Verify product exists
 	product, err := h.productRepo.GetByID(r.Context(), req.ProductID)
@@ -57,11 +72,15 @@ func (h *InterestHandler) Create(w http.ResponseWriter, r *http.Request) {
 	}
 
 	interest := &domain.Interest{
-		ID:          uuid.New(),
-		UserID:      userID,
-		ProductID:   req.ProductID,
-		SellEnabled: false, // Phase 1: false
-		BuyEnabled:  true,  // Phase 1: true
+		ID:                 uuid.New(),
+		UserID:             userID,
+		ProductID:          req.ProductID,
+		SellEnabled:        false, // Phase 1: false
+		BuyEnabled:         true,  // Phase 1: true
+		MaxPriceAmount:     req.MaxPriceAmount,
+		MinQuantity:        req.MinQuantity,
+		PreferredCity:      req.PreferredCity,
+		RequiredAttributes: req.RequiredAttributes,
 	}
 
 	if err := h.interestRepo.Create(r.Context(), interest); err != nil {
@@ -88,4 +107,39 @@ func (h *InterestHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	}
 
 	httputil.RespondJSON(w, http.StatusOK, map[string]string{"message": "Interest deleted successfully"})
+}
+
+func (h *InterestHandler) Update(w http.ResponseWriter, r *http.Request) {
+	userID := httputil.GetUserIDFromContext(r.Context())
+	id, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		httputil.RespondError(w, http.StatusBadRequest, "Invalid interest ID")
+		return
+	}
+	var req domain.UpdateInterestRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		httputil.RespondError(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+	if req.MaxPriceAmount != nil && *req.MaxPriceAmount < 0 {
+		httputil.RespondError(w, http.StatusBadRequest, "max_price_amount must be nonnegative")
+		return
+	}
+	if req.MinQuantity != nil && *req.MinQuantity <= 0 {
+		httputil.RespondError(w, http.StatusBadRequest, "min_quantity must be positive")
+		return
+	}
+	if req.RequiredAttributes != nil {
+		var attrs map[string]any
+		if json.Unmarshal(req.RequiredAttributes, &attrs) != nil {
+			httputil.RespondError(w, http.StatusBadRequest, "required_attributes must be a JSON object")
+			return
+		}
+	}
+	item, err := h.interestRepo.Update(r.Context(), id, userID, req)
+	if err != nil {
+		httputil.RespondError(w, http.StatusNotFound, "Interest not found")
+		return
+	}
+	httputil.RespondJSON(w, http.StatusOK, item)
 }

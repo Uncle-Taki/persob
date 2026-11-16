@@ -13,7 +13,7 @@ func TestUnsafeModesFailClosed(t *testing.T) {
 		{"real Telegram with default session key", map[string]string{"TELEGRAM_APP_ID": "1", "TELEGRAM_MOCK_MODE": "false"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			for _, key := range []string{"DEMO_AUTH_ENABLED", "LLM_ENABLED", "GEMINI_API_KEY", "TELEGRAM_APP_ID", "TELEGRAM_MOCK_MODE", "TELEGRAM_SESSION_STORAGE_KEY"} {
+			for _, key := range []string{"DEMO_AUTH_ENABLED", "LLM_ENABLED", "LLM_PROVIDER", "LLM_BASE_URL", "LLM_MODEL", "LLM_API_KEY", "GEMINI_API_KEY", "TELEGRAM_APP_ID", "TELEGRAM_MOCK_MODE", "TELEGRAM_SESSION_STORAGE_KEY"} {
 				t.Setenv(key, "")
 			}
 			for key, value := range tc.values {
