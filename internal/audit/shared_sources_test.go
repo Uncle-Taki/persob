@@ -18,8 +18,8 @@ import (
 	"go.mongodb.org/mongo-driver/bson"
 )
 
-// Multiple buyer interests and repeated/edited deliveries share one listing and
-// raw identity. Buyer match fan-out remains intentionally disabled until 3B.
+// Multiple assigned buyers and repeated/edited deliveries share one listing and
+// raw identity while preserving one match per eligible buyer.
 func TestSharedIngestionReplayEditsAndMultipleBuyerInterests(t *testing.T) {
 	ctx := context.Background()
 	db := database(t, true)
@@ -72,11 +72,14 @@ func TestSharedIngestionReplayEditsAndMultipleBuyerInterests(t *testing.T) {
 		if err := db.Pool.QueryRow(ctx, `SELECT count(*) FROM price_observations`).Scan(&observations); err != nil || observations != wantObservations {
 			t.Fatalf("history count=%d want=%d err=%v", observations, wantObservations, err)
 		}
-		if err := db.Pool.QueryRow(ctx, `SELECT count(*) FROM offer_match_results`).Scan(&matches); err != nil || matches != 1 {
-			t.Fatalf("replay duplicated operator match or enabled buyer fan-out: %d err=%v", matches, err)
+		if err := db.Pool.QueryRow(ctx, `SELECT count(*) FROM offer_match_results`).Scan(&matches); err != nil || matches != 2 {
+			t.Fatalf("replay duplicated or omitted assigned-buyer matches: %d err=%v", matches, err)
 		}
-		if err := db.Pool.QueryRow(ctx, `SELECT count(*) FROM offer_match_results WHERE user_id=ANY($1::uuid[])`, []uuid.UUID{a, b}).Scan(&matches); err != nil || matches != 0 {
-			t.Fatal("3A prematurely created buyer matches", err)
+		if err := db.Pool.QueryRow(ctx, `SELECT count(*) FROM offer_match_results WHERE user_id=ANY($1::uuid[])`, []uuid.UUID{a, b}).Scan(&matches); err != nil || matches != 2 {
+			t.Fatalf("assigned buyers did not each receive one match: %d err=%v", matches, err)
+		}
+		if err := db.Pool.QueryRow(ctx, `SELECT count(*) FROM offer_match_results WHERE user_id=ANY($1::uuid[])`, []uuid.UUID{buyerID, otherAdmin}).Scan(&matches); err != nil || matches != 0 {
+			t.Fatalf("unassigned administrators received buyer matches: %d err=%v", matches, err)
 		}
 	}
 	counts(1)

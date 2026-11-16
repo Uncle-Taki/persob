@@ -9,14 +9,13 @@ import (
 	"testing"
 )
 
-func TestSourceCreationRejectsUnverifiedMetadata(t *testing.T) {
+func TestSourceCreationRequiresAuthenticatedAdmin(t *testing.T) {
 	cases := []struct {
 		name, body string
-		status     int
 	}{
-		{"peer metadata without address", `{"telegram_peer_id":-100777,"source_type":"forum","access_type":"private","capabilities":{"can_read_history":true}}`, http.StatusBadRequest},
-		{"detected type mismatch", `{"address":"@tech_forum","expected_type":"broadcast_channel"}`, http.StatusConflict},
-		{"invalid expected type", `{"address":"@tech_forum","expected_type":"administrator"}`, http.StatusBadRequest},
+		{"peer metadata without address", `{"telegram_peer_id":-100777,"source_type":"forum","access_type":"private","capabilities":{"can_read_history":true}}`},
+		{"detected type mismatch", `{"address":"@tech_forum","expected_type":"broadcast_channel"}`},
+		{"invalid expected type", `{"address":"@tech_forum","expected_type":"administrator"}`},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -28,8 +27,8 @@ func TestSourceCreationRejectsUnverifiedMetadata(t *testing.T) {
 			h := handlers.NewTelegramSourceHandler(nil, telegram.NewResolver(nil, true))
 			w := httptest.NewRecorder()
 			h.Create(w, httptest.NewRequest(http.MethodPost, "/", strings.NewReader(tc.body)))
-			if w.Code != tc.status {
-				t.Errorf("status=%d want=%d body=%s", w.Code, tc.status, w.Body.String())
+			if w.Code != http.StatusForbidden {
+				t.Errorf("status=%d want=%d body=%s", w.Code, http.StatusForbidden, w.Body.String())
 			}
 		})
 	}

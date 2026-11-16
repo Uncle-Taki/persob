@@ -302,7 +302,7 @@ func TestSharedSourcePopulatedUpgradePreservesOwnershipAndHistory(t *testing.T) 
 		{`SELECT count(*) FROM telegram_sources WHERE telegram_peer_id=-125 AND NOT is_active AND ingestion_status='paused'`, 1},
 		{`SELECT count(*) FROM watch_sources`, 2},
 		{`SELECT count(*) FROM price_observations WHERE price_amount=100`, 1},
-		{`SELECT count(*) FROM schema_migrations`, 5},
+		{`SELECT count(*) FROM schema_migrations`, 6},
 	} {
 		if err := db.Pool.QueryRow(ctx, check.sql).Scan(&n); err != nil || n != check.want {
 			t.Fatalf("upgrade check %s: n=%d want=%d err=%v", check.sql, n, check.want, err)

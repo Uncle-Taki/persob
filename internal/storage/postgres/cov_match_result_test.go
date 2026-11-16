@@ -89,6 +89,13 @@ func TestCovMatchResultListByUserIDPaginationAndOrder(t *testing.T) {
 	covProduct(t, db, covProductA, "P", "Apple", "M", "C")
 	covOfferForCreate(t, db, covOfferID1, covProductA, "mru-1", 100)
 	covOfferForCreate(t, db, covOfferID2, covProductA, "mru-2", 200)
+	source := covTelegramSource(t, db, uuid.New(), covOwnerID, -100515, "match pagination fixture")
+	if _, err := db.Pool.Exec(ctx, `INSERT INTO source_assignments(source_id,buyer_id) VALUES($1,$2)`, source.ID, covBuyerID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Pool.Exec(ctx, `UPDATE offers SET source_id=$1 WHERE id=ANY($2::uuid[])`, source.ID, []uuid.UUID{covOfferID1, covOfferID2}); err != nil {
+		t.Fatal(err)
+	}
 
 	mk := func(offerID uuid.UUID, score float64) {
 		if err := repo.Create(ctx, &domain.OfferMatchResult{
@@ -102,6 +109,9 @@ func TestCovMatchResultListByUserIDPaginationAndOrder(t *testing.T) {
 	covOfferForCreate(t, db, uuid.New(), covProductA, "mru-3", 300)
 	var third uuid.UUID
 	if err := db.Pool.QueryRow(ctx, `SELECT id FROM offers WHERE source_message_id='mru-3'`).Scan(&third); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Pool.Exec(ctx, `UPDATE offers SET source_id=$1 WHERE id=$2`, source.ID, third); err != nil {
 		t.Fatal(err)
 	}
 	mk(covOfferID1, 0.3)

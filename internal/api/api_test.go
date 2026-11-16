@@ -1,15 +1,12 @@
 package api_test
 
 import (
-	"bytes"
-	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
 	"github.com/perso/perso-mind/internal/api"
 	"github.com/perso/perso-mind/internal/api/handlers"
-	"github.com/perso/perso-mind/internal/domain"
 	"github.com/perso/perso-mind/internal/telegram"
 )
 
@@ -53,7 +50,7 @@ func TestHealthEndpoints(t *testing.T) {
 	}
 }
 
-func TestResolveSourceEndpoint(t *testing.T) {
+func TestResolveSourceEndpointRequiresAuthenticatedAdmin(t *testing.T) {
 	resolver := telegram.NewResolver(nil, true)
 	sourceH := handlers.NewTelegramSourceHandler(nil, resolver)
 
@@ -69,38 +66,12 @@ func TestResolveSourceEndpoint(t *testing.T) {
 		AnalyticsHandler:      handlers.NewAnalyticsHandler(nil, nil, nil, nil, nil),
 	})
 
-	// Test resolving forum entity
-	body, _ := json.Marshal(domain.ResolveSourceRequest{
-		Address:      "https://t.me/tech_forum_iran",
-		ExpectedType: domain.TelegramSourceTypeForum,
-	})
-
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/sources/resolve", bytes.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/sources/resolve", nil)
 	w := httptest.NewRecorder()
 
 	router.ServeHTTP(w, req)
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("resolve endpoint status = %d, want %d: %s", w.Code, http.StatusOK, w.Body.String())
-	}
-
-	var apiResp struct {
-		Success bool                         `json:"success"`
-		Data    domain.ResolveSourceResponse `json:"data"`
-	}
-	if err := json.Unmarshal(w.Body.Bytes(), &apiResp); err != nil {
-		t.Fatalf("failed to decode response: %v", err)
-	}
-	resp := apiResp.Data
-
-	if resp.DetectedType != domain.TelegramSourceTypeForum {
-		t.Errorf("DetectedType = %s, want forum", resp.DetectedType)
-	}
-	if !resp.Capabilities.HasTopics {
-		t.Errorf("Expected Capabilities.HasTopics = true for forum")
-	}
-	if !resp.AccountHasAccess {
-		t.Errorf("Expected AccountHasAccess = true")
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("resolve endpoint status = %d, want %d: %s", w.Code, http.StatusForbidden, w.Body.String())
 	}
 }

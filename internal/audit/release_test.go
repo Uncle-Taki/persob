@@ -209,11 +209,23 @@ func TestBestOfferRankingBeforePagination(t *testing.T) {
 	db := database(t, true)
 	p := product(t, db, "iPhone")
 	best := offer(t, db, p, "-1001_best", 50, domain.CurrencyToman)
-	offer(t, db, p, "-1001_newest", 150, domain.CurrencyToman)
+	other := offer(t, db, p, "-1001_newest", 150, domain.CurrencyToman)
+	source := &domain.TelegramSource{OwnerID: buyerID, TelegramPeerID: -1001001, Title: "ranking fixture", SourceType: domain.TelegramSourceTypeSupergroup, DetectedType: domain.TelegramSourceTypeSupergroup, IsActive: true, IngestionStatus: domain.IngestionStatusActive}
+	if err := postgres.NewTelegramSourceRepo(db).Create(context.Background(), source); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Pool.Exec(context.Background(), `INSERT INTO source_assignments(source_id,buyer_id) VALUES($1,$2)`, source.ID, buyerID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Pool.Exec(context.Background(), `UPDATE offers SET source_id=$1 WHERE id=ANY($2::uuid[])`, source.ID, []uuid.UUID{best.ID, other.ID}); err != nil {
+		t.Fatal(err)
+	}
 	e := analytics.NewEngine(postgres.NewOfferRepo(db), postgres.NewProductRepo(db), postgres.NewAnalyticsRepo(db))
 	h := handlers.NewOfferHandler(postgres.NewOfferRepo(db), nil, e)
 	w := httptest.NewRecorder()
-	h.List(w, httptest.NewRequest("GET", "/offers?sort_by=best_offer&limit=1&product_id="+p.ID.String(), nil))
+	req := httptest.NewRequest("GET", "/offers?sort_by=best_offer&limit=1&product_id="+p.ID.String(), nil)
+	req = req.WithContext(context.WithValue(req.Context(), httputil.UserContextKey, buyerID))
+	h.List(w, req)
 	var resp struct {
 		Data []domain.ScoredOffer `json:"data"`
 	}
@@ -404,6 +416,9 @@ func TestBackendFixturePipelineBySourceType(t *testing.T) {
 			if err := postgres.NewTelegramSourceRepo(db).Create(ctx, source); err != nil {
 				t.Fatal(err)
 			}
+			if _, err := db.Pool.Exec(ctx, `INSERT INTO source_assignments(source_id,buyer_id) VALUES($1,$2)`, source.ID, buyerID); err != nil {
+				t.Fatal(err)
+			}
 			raw := &tg.Message{ID: 7, PeerID: &tg.PeerChannel{ChannelID: 123}, FromID: &tg.PeerUser{UserID: 77}, Date: int(time.Now().Unix()), Message: "فروش آیفون ۱۵ پرو ۲۵۶ گیگ قیمت ۹۸ میلیون تومان تهران", ReplyTo: &tg.MessageReplyHeader{ForumTopic: true, ReplyToTopID: 90, ReplyToMsgID: 91}}
 			msg, err := telegram.GetIngestionAdapter(sourceType, false).AdaptMessage(ctx, tg.Entities{}, raw, source)
 			if err != nil {
@@ -422,6 +437,7 @@ func TestBackendFixturePipelineBySourceType(t *testing.T) {
 				t.Fatal(err)
 			}
 			proc := worker.NewMessageProcessor(&config.Config{}, messages, mongodb.NewExtractionRepo(mongoDB), nil, nil, matching.NewMatcher(postgres.NewProductRepo(db)), postgres.NewOfferRepo(db), postgres.NewProductRepo(db), postgres.NewInterestRepo(db), postgres.NewSellerProfileRepo(db), postgres.NewMatchResultRepo(db), nil, nil, nil)
+			proc.SetSourceRepo(postgres.NewTelegramSourceRepo(db))
 			readCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 			defer cancel()
 			calls := 0

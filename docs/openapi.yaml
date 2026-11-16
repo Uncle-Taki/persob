@@ -1320,7 +1320,9 @@ components:
           format: uuid
         name: &id007
           type: string
+        normalized_name: *id007
         brand: *id007
+        manufacturer: *id007
         model: *id007
         category: *id007
         attributes:
