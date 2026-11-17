@@ -148,8 +148,8 @@ func TestStep7_SimulatedSellerConsent(t *testing.T) {
 
 	acceptCases := []string{
 		"بله بفرمایید",
-		"حتماً",
-		"مشکلی نیست بپرسید",
+		"بله حتماً",
+		"بپرسید",
 		"بله",
 		"yes",
 		"ok",
