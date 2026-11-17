@@ -373,20 +373,13 @@ func (p *MessageProcessor) handleSellerAdvertisement(
 			}
 		}
 
-		// 5. Detect missing fields for conversation management (if not opted out)
-		if !isOptedOut && productID != nil && p.interestRepo != nil {
-			eligible, err := p.interestRepo.FindInterestedUsers(ctx, *productID)
+		// 5. Create one supervised draft for every currently assigned buyer
+		// whose enabled buying interest matches this offer. Never attribute a
+		// shared listing to the operator account as a substitute for the buyer.
+		if !isOptedOut && productID != nil && sourceID != nil && p.interestRepo != nil && p.convManager != nil && msg.SenderID != 0 {
+			assignedInterests, err := p.interestRepo.FindAssignedInterestsByProductID(ctx, *productID, *sourceID)
 			if err != nil {
-				return err
-			}
-			hasOwner := false
-			for _, user := range eligible {
-				if user == *p.cfg.OwnerID() {
-					hasOwner = true
-				}
-			}
-			if !hasOwner {
-				continue
+				return fmt.Errorf("load assigned interests for supervised intake: %w", err)
 			}
 			var missingFields []domain.MissingField
 			fields := p.cfg.ConversationFields
@@ -417,12 +410,14 @@ func (p *MessageProcessor) handleSellerAdvertisement(
 					missingFields = append(missingFields, field)
 				}
 			}
-
-			// Initialize conversation if missing fields exist
-			if len(missingFields) > 0 && p.convManager != nil && msg.SenderID != 0 {
-				_, err := p.convManager.InitConversation(ctx, intakeOffer(offer, p.cfg.OwnerID()), missingFields)
-				if err != nil {
-					return fmt.Errorf("initialize conversation: %w", err)
+			if len(missingFields) > 0 {
+				for _, interest := range assignedInterests {
+					if !interestMatchesOffer(interest, offer) || interest.UserID == uuid.Nil {
+						continue
+					}
+					if _, err := p.convManager.InitConversation(ctx, intakeOffer(offer, &interest.UserID), missingFields); err != nil {
+						return fmt.Errorf("initialize buyer-scoped conversation for %s: %w", interest.UserID, err)
+					}
 				}
 			}
 		}
