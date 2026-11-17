@@ -1,15 +1,12 @@
 package conversation_test
 
 import (
-	"context"
 	"fmt"
 	"net/http"
-	"net/http/httptest"
 	"regexp"
 	"strings"
 	"sync"
 	"testing"
-	"time"
 
 	"github.com/google/uuid"
 	"github.com/perso/perso-mind/internal/conversation"
