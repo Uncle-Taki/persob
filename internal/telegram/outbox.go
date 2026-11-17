@@ -28,6 +28,11 @@ func (c *Collector) cacheEntities(ctx context.Context, e tg.Entities) error {
 	return nil
 }
 func (c *Collector) runOutbox(ctx context.Context) {
+	// Demo-auth and mock Telegram modes must never fall through to a real
+	// MTProto client. A mock mode without its mock transport fails closed.
+	if c.cfg.DemoAuthEnabled || (c.cfg.TelegramMockMode && c.mockClient == nil) {
+		return
+	}
 	if c.marketDB == nil || !c.cfg.OutreachEnabled {
 		return
 	}
@@ -49,6 +54,9 @@ func (c *Collector) runOutbox(ctx context.Context) {
 	}
 }
 func (c *Collector) dispatchOne(ctx context.Context) error {
+	if c.cfg.DemoAuthEnabled || (c.cfg.TelegramMockMode && c.mockClient == nil) {
+		return fmt.Errorf("outbound delivery is disabled in demo or unconfigured mock mode")
+	}
 	// Serialize eligibility and send against pause/opt-out transitions. The
 	// transaction has a bounded lifetime; RandomID is stable across redelivery.
 	if c.cfg.InQuietHours(time.Now()) {
