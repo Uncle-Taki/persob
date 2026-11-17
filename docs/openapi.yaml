@@ -1597,7 +1597,7 @@ components:
         catalog_domain:
           type: string
           enum:
-          - electronics
+          - healthcare
         workspace_mode:
           type: string
           enum:

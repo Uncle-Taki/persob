@@ -159,6 +159,8 @@ func TestIdentityLifecycle(t *testing.T) {
 		t.Fatal("expected separate instance")
 	}
 	data := owner.request(t, "GET", "/api/v1/session", nil, 200)
+	var catalogDomain string
+	if err := json.Unmarshal(data["catalog_domain"], &catalogDomain); err != nil || catalogDomain != "healthcare" { t.Fatalf("catalog domain = %q, err=%v", catalogDomain, err) }
 	var account struct {
 		ID   string `json:"id"`
 		Role string `json:"role"`

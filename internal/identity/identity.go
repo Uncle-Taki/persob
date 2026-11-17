@@ -299,7 +299,7 @@ func (s *Service) Login(w http.ResponseWriter, r *http.Request) {
 func (s *Service) Session(w http.ResponseWriter, r *http.Request, outreach bool) {
 	u := Current(r.Context())
 	raw, _ := r.Context().Value(sessionKey{}).(string)
-	httputil.RespondJSON(w, 200, map[string]any{"user_id": u.ID, "user": u, "csrf_token": csrf(raw), "permissions": Permissions(u), "catalog_domain": "electronics", "workspace_mode": "multi_user_identity", "marketplace_access": true, "demo": false, "outreach_enabled": outreach && admin(u.Role)})
+	httputil.RespondJSON(w, 200, map[string]any{"user_id": u.ID, "user": u, "csrf_token": csrf(raw), "permissions": Permissions(u), "catalog_domain": "healthcare", "workspace_mode": "multi_user_identity", "marketplace_access": true, "demo": false, "outreach_enabled": outreach && admin(u.Role)})
 }
 func (s *Service) Logout(w http.ResponseWriter, r *http.Request) {
 	raw, _ := r.Context().Value(sessionKey{}).(string)
