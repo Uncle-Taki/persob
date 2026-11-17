@@ -82,8 +82,12 @@ func (m *Manager) approve(ctx context.Context, id, actor uuid.UUID, administrato
 	}
 	if administrator {
 		allowed, err := m.pgConvRepo.HasCurrentBuyerGrant(ctx, id)
-		if err != nil { return err }
-		if !allowed { return fmt.Errorf("buyer account, interest, or source grant is no longer active") }
+		if err != nil {
+			return err
+		}
+		if !allowed {
+			return fmt.Errorf("buyer account, interest, or source grant is no longer active")
+		}
 	}
 	if c.State != domain.ConvStateAwaitingApproval {
 		return fmt.Errorf("conversation is not awaiting approval")
