@@ -188,6 +188,9 @@ func (r *MessagesRepo) ListForReextract(ctx context.Context, after time.Time, af
 }
 
 func (r *MessagesRepo) ConfigureRetention(ctx context.Context, days int) error {
-	_, err := r.coll.UpdateMany(ctx, bson.M{"expires_at": bson.M{"$exists": false}}, mongo.Pipeline{bson.D{{Key: "$set", Value: bson.M{"expires_at": bson.M{"$dateAdd": bson.M{"startDate": "$received_at", "unit": "day", "amount": days}}}}}})
+	if days <= 0 {
+		return nil
+	}
+	_, err := r.coll.UpdateMany(ctx, retentionFilter("telegram_messages"), mongo.Pipeline{bson.D{{Key: "$set", Value: bson.M{"expires_at": bson.M{"$dateAdd": bson.M{"startDate": "$received_at", "unit": "day", "amount": days}}}}}})
 	return err
 }
