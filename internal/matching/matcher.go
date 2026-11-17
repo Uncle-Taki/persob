@@ -57,6 +57,10 @@ func (m *Matcher) MatchSellerProduct(ctx context.Context, extracted *domain.Extr
 	normName := strings.ToLower(nlp.CleanSearchKey(extracted.Name))
 	normBrand := strings.ToLower(nlp.CleanSearchKey(extracted.Brand))
 	normModel := strings.ToLower(nlp.CleanSearchKey(extracted.Model))
+	normFormName := ""
+	if extracted.DosageForm != "" && !strings.Contains(normName, strings.ToLower(nlp.CleanSearchKey(extracted.DosageForm))) {
+		normFormName = strings.ToLower(nlp.CleanSearchKey(extracted.DosageForm + " " + extracted.Name))
+	}
 
 	// Level 2: Exact Normalized Name match
 	for _, p := range products {
@@ -64,7 +68,7 @@ func (m *Matcher) MatchSellerProduct(ctx context.Context, extracted *domain.Extr
 			continue
 		}
 		pNorm := strings.ToLower(nlp.CleanSearchKey(p.Name))
-		if pNorm != "" && (pNorm == normName || p.NormalizedName == normName) {
+		if pNorm != "" && (pNorm == normName || p.NormalizedName == normName || (normFormName != "" && (pNorm == normFormName || p.NormalizedName == normFormName))) {
 			return &MatchResult{
 				Matched:        true,
 				ProductID:      p.ID,
@@ -84,7 +88,7 @@ func (m *Matcher) MatchSellerProduct(ctx context.Context, extracted *domain.Extr
 		}
 		for _, alias := range p.Aliases {
 			normAlias := strings.ToLower(nlp.CleanSearchKey(alias.Alias))
-			if normAlias != "" && (normAlias == normName) {
+			if normAlias != "" && (normAlias == normName || (normFormName != "" && normAlias == normFormName)) {
 				return &MatchResult{
 					Matched:        true,
 					ProductID:      p.ID,

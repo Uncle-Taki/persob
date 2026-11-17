@@ -159,6 +159,34 @@ func (r *MessagesRepo) GetUndispatched(ctx context.Context) ([]domain.TelegramMe
 	return msgs, err
 }
 
+// ListForReextract returns raw messages in a stable keyset order. The cursor
+// is exclusive after the first page; callers persist the last tuple and pass
+// it back to resume without loading the collection into memory.
+func (r *MessagesRepo) ListForReextract(ctx context.Context, after time.Time, afterChatID, afterMessageID int64, limit int64) ([]domain.TelegramMessage, error) {
+	if limit <= 0 || limit > 1000 {
+		limit = 100
+	}
+	filter := bson.M{"message_text": bson.M{"$exists": true}}
+	if !after.IsZero() {
+		filter["$or"] = bson.A{
+			bson.M{"received_at": bson.M{"$gt": after}},
+			bson.M{"received_at": after, "telegram_chat_id": bson.M{"$gt": afterChatID}},
+			bson.M{"received_at": after, "telegram_chat_id": afterChatID, "telegram_message_id": bson.M{"$gt": afterMessageID}},
+		}
+	}
+	opts := options.Find().SetLimit(limit).SetSort(bson.D{{Key: "received_at", Value: 1}, {Key: "telegram_chat_id", Value: 1}, {Key: "telegram_message_id", Value: 1}})
+	cursor, err := r.coll.Find(ctx, filter, opts)
+	if err != nil {
+		return nil, fmt.Errorf("find messages for re-extraction: %w", err)
+	}
+	defer cursor.Close(ctx)
+	var messages []domain.TelegramMessage
+	if err := cursor.All(ctx, &messages); err != nil {
+		return nil, fmt.Errorf("decode messages for re-extraction: %w", err)
+	}
+	return messages, nil
+}
+
 func (r *MessagesRepo) ConfigureRetention(ctx context.Context, days int) error {
 	_, err := r.coll.UpdateMany(ctx, bson.M{"expires_at": bson.M{"$exists": false}}, mongo.Pipeline{bson.D{{Key: "$set", Value: bson.M{"expires_at": bson.M{"$dateAdd": bson.M{"startDate": "$received_at", "unit": "day", "amount": days}}}}}})
 	return err

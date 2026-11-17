@@ -74,6 +74,9 @@ func (db *DB) EnsureIndexes(ctx context.Context) error {
 			Keys: bson.D{{Key: "received_at", Value: -1}},
 		},
 		{
+			Keys: bson.D{{Key: "received_at", Value: 1}, {Key: "telegram_chat_id", Value: 1}, {Key: "telegram_message_id", Value: 1}},
+		},
+		{
 			Keys: bson.D{{Key: "source_id", Value: 1}},
 		},
 		{
@@ -171,7 +174,7 @@ func (db *DB) ConfigureRetention(ctx context.Context, days int) error {
 	}
 	for _, name := range []string{"telegram_messages", "extracted_messages", "llm_extractions", "conversation_messages", "conversation_events", "telegram_updates"} {
 		coll := db.Database.Collection(name)
-		_, err := coll.UpdateMany(ctx, bson.M{"expires_at": bson.M{"$exists": false}}, mongo.Pipeline{bson.D{{Key: "$set", Value: bson.M{"expires_at": bson.M{"$dateAdd": bson.M{"startDate": bson.M{"$ifNull": bson.A{"$received_at", bson.M{"$ifNull": bson.A{"$created_at", bson.M{"$ifNull": bson.A{"$sent_at", "$$NOW"}}}}}}, "unit": "day", "amount": days}}}}}})
+		_, err := coll.UpdateMany(ctx, retentionFilter(name), mongo.Pipeline{bson.D{{Key: "$set", Value: bson.M{"expires_at": bson.M{"$dateAdd": bson.M{"startDate": bson.M{"$ifNull": bson.A{"$received_at", bson.M{"$ifNull": bson.A{"$created_at", bson.M{"$ifNull": bson.A{"$sent_at", "$$NOW"}}}}}}, "unit": "day", "amount": days}}}}}})
 		if err != nil {
 			return err
 		}
@@ -181,4 +184,16 @@ func (db *DB) ConfigureRetention(ctx context.Context, days int) error {
 		}
 	}
 	return nil
+}
+
+// retentionFilter deliberately leaves unprocessed raw messages without an
+// expiry timestamp. The TTL index can then remove completed history while a
+// pending or dispatchable message remains available for recovery.
+func retentionFilter(collection string) bson.M {
+	filter := bson.M{"expires_at": bson.M{"$exists": false}}
+	if collection == "telegram_messages" {
+		filter["processing_status"] = bson.M{"$nin": []string{"pending", "processing"}}
+		filter["dispatch_pending"] = bson.M{"$ne": true}
+	}
+	return filter
 }

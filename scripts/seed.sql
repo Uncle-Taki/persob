@@ -11,6 +11,7 @@ INSERT INTO products (id,name,normalized_name,brand,manufacturer,model,category,
 ON CONFLICT (id) DO NOTHING;
 INSERT INTO product_aliases (product_id,alias,normalized_alias,locale,alias_type) VALUES
 ('22222222-2222-2222-2222-222222222221','سرم نرمال سالین','سرم نرمال سالین','fa','persian_name'),
+('22222222-2222-2222-2222-222222222221','نرمال سالین','نرمال سالین','fa','generic_name'),
 ('22222222-2222-2222-2222-222222222221','Normal Saline 0.9%','normal saline 0.9','en','english_name'),
 ('22222222-2222-2222-2222-222222222222','دستکش نیتریل','دستکش نیتریل','fa','persian_name'),
 ('22222222-2222-2222-2222-222222222223','دستگاه فشار خون دیجیتال','دستگاه فشار خون دیجیتال','fa','persian_name')
