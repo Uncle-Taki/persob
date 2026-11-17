@@ -140,8 +140,11 @@ func main() {
 			break
 		}
 		limit := *batchSize
-		if *maxMessages > 0 && remaining := *maxMessages - scanned; remaining < limit {
-			limit = remaining
+		if *maxMessages > 0 {
+			remaining := *maxMessages - scanned
+			if remaining < limit {
+				limit = remaining
+			}
 		}
 		batch, err := messages.ListForReextract(ctx, cp.ReceivedAt, cp.TelegramChatID, cp.TelegramMessage, limit)
 		if err != nil {

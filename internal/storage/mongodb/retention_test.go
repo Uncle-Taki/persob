@@ -1,20 +1,24 @@
 package mongodb
 
-import "testing"
+import (
+	"testing"
+
+	"go.mongodb.org/mongo-driver/bson"
+)
 
 func TestRetentionFilterKeepsUnprocessedMessages(t *testing.T) {
 	filter := retentionFilter("telegram_messages")
 	if _, ok := filter["expires_at"]; !ok {
 		t.Fatal("retention filter must only target documents without an expiry")
 	}
-	status, ok := filter["processing_status"].(map[string]interface{})
+	status, ok := filter["processing_status"].(bson.M)
 	if !ok {
 		t.Fatalf("processing status filter type = %T", filter["processing_status"])
 	}
 	if _, ok := status["$nin"]; !ok {
 		t.Fatal("unprocessed status exclusion is missing")
 	}
-	dispatch, ok := filter["dispatch_pending"].(map[string]interface{})
+	dispatch, ok := filter["dispatch_pending"].(bson.M)
 	if !ok {
 		t.Fatalf("dispatch filter type = %T", filter["dispatch_pending"])
 	}
