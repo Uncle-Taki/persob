@@ -72,9 +72,17 @@ func (c *Collector) dispatchOne(ctx context.Context) error {
 		return err
 	}
 	var eligible bool
-	err = tx.QueryRow(callCtx, `SELECT c.state IN ('AWAITING_CONSENT','WAITING_FOR_REPLY','ACTIVE') AND c.approved_at IS NOT NULL AND NOT COALESCE(s.opted_out,false)
- AND EXISTS(SELECT 1 FROM interests i WHERE i.user_id=c.owner_id AND i.product_id=c.product_id AND i.buy_enabled)
- FROM conversations c LEFT JOIN seller_profiles s ON s.seller_id=c.seller_id WHERE c.id=$1 FOR UPDATE OF c`, conversation).Scan(&eligible)
+	err = tx.QueryRow(callCtx, `SELECT c.state IN ('AWAITING_CONSENT','WAITING_FOR_REPLY','ACTIVE') AND c.approved_at IS NOT NULL
+ AND NOT COALESCE(sp.opted_out,false)
+ AND EXISTS(SELECT 1 FROM users u WHERE u.id=c.owner_id AND u.active=true AND u.role='buyer')
+ AND EXISTS(SELECT 1 FROM interests i WHERE i.user_id=c.owner_id AND i.product_id=c.product_id AND i.buy_enabled=true)
+ AND EXISTS(
+   SELECT 1 FROM offers o
+   JOIN telegram_sources ts ON ts.id=o.source_id AND ts.workspace_id=o.workspace_id
+   JOIN source_assignments sa ON sa.workspace_id=o.workspace_id AND sa.source_id=o.source_id AND sa.buyer_id=c.owner_id
+   WHERE o.id=c.offer_id AND ts.is_active=true AND ts.deleted_at IS NULL AND ts.ingestion_status='active'
+ )
+ FROM conversations c LEFT JOIN seller_profiles sp ON sp.seller_id=c.seller_id WHERE c.id=$1 FOR UPDATE OF c`, conversation).Scan(&eligible)
 	if err != nil {
 		return err
 	}

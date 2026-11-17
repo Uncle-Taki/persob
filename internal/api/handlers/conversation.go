@@ -91,7 +91,7 @@ func (h *ConversationHandler) GetByID(w http.ResponseWriter, r *http.Request) {
 		httputil.RespondError(w, http.StatusInternalServerError, "Failed to get conversation")
 		return
 	}
-	if conv == nil || conv.OwnerID == nil || *conv.OwnerID != httputil.GetUserIDFromContext(r.Context()) {
+	if conv == nil || (!isWorkspaceAdmin(r) && (conv.OwnerID == nil || *conv.OwnerID != httputil.GetUserIDFromContext(r.Context()))) {
 		httputil.RespondError(w, http.StatusNotFound, "Conversation not found")
 		return
 	}
@@ -121,7 +121,7 @@ func (h *ConversationHandler) Approve(w http.ResponseWriter, r *http.Request) {
 	}
 
 	userID := httputil.GetUserIDFromContext(r.Context())
-	if err := h.convManager.Approve(r.Context(), id, userID); err != nil {
+	if err := h.convManager.ApproveAsAdmin(r.Context(), id, userID); err != nil {
 		httputil.RespondError(w, http.StatusBadRequest, "Failed to approve conversation")
 		return
 	}
@@ -179,7 +179,7 @@ func (h *ConversationHandler) authorized(w http.ResponseWriter, r *http.Request,
 		httputil.RespondError(w, 500, "Unable to load conversation")
 		return false
 	}
-	if c == nil || c.OwnerID == nil || *c.OwnerID != httputil.GetUserIDFromContext(r.Context()) {
+	if c == nil || (!isWorkspaceAdmin(r) && (c.OwnerID == nil || *c.OwnerID != httputil.GetUserIDFromContext(r.Context()))) {
 		httputil.RespondError(w, 404, "Conversation not found")
 		return false
 	}

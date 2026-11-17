@@ -295,6 +295,23 @@ func (r *ConversationRepo) ListVisibleToUser(ctx context.Context, userID uuid.UU
 	return list, total, rows.Err()
 }
 
+// HasCurrentBuyerGrant rechecks buyer activity, interest and source assignment before approval.
+func (r *ConversationRepo) HasCurrentBuyerGrant(ctx context.Context, conversationID uuid.UUID) (bool, error) {
+ var allowed bool
+ err := r.db.Pool.QueryRow(ctx, `
+  SELECT EXISTS (
+   SELECT 1 FROM conversations c
+   JOIN conversation_requests cr ON cr.conversation_id=c.id AND cr.user_id=c.owner_id
+   JOIN users u ON u.id=cr.user_id AND u.active=true AND u.role='buyer'
+   JOIN offers o ON o.id=c.offer_id
+   JOIN telegram_sources s ON s.id=o.source_id AND s.workspace_id=o.workspace_id AND s.is_active=true AND s.deleted_at IS NULL AND s.ingestion_status='active'
+   JOIN source_assignments sa ON sa.workspace_id=o.workspace_id AND sa.source_id=o.source_id AND sa.buyer_id=cr.user_id
+   JOIN interests i ON i.user_id=cr.user_id AND i.product_id=c.product_id AND i.buy_enabled=true
+   WHERE c.id=$1
+  )`, conversationID).Scan(&allowed)
+ return allowed, err
+}
+
 func (r *ConversationRepo) GetByIDForUser(ctx context.Context, id, userID uuid.UUID) (*domain.Conversation, error) {
 	var exists bool
 	err := r.db.Pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM conversation_requests cr JOIN offers o ON o.id=cr.offer_id JOIN source_assignments sa ON sa.workspace_id=o.workspace_id AND sa.source_id=o.source_id WHERE cr.conversation_id=$1 AND cr.user_id=$2 AND sa.buyer_id=$2)`, id, userID).Scan(&exists)

@@ -58,6 +58,15 @@ func (m *Manager) InitConversation(ctx context.Context, o *domain.Offer, missing
 	return m.pgConvRepo.GetByID(ctx, c.ID)
 }
 func (m *Manager) Approve(ctx context.Context, id, user uuid.UUID) error {
+ return m.approve(ctx, id, user, false)
+}
+
+// ApproveAsAdmin preserves the buyer as owner while recording the approving administrator.
+func (m *Manager) ApproveAsAdmin(ctx context.Context, id, admin uuid.UUID) error {
+ return m.approve(ctx, id, admin, true)
+}
+
+func (m *Manager) approve(ctx context.Context, id, actor uuid.UUID, administrator bool) error {
 	if !m.cfg.OutreachEnabled {
 		return fmt.Errorf("outreach is disabled by configuration")
 	}
@@ -68,8 +77,13 @@ func (m *Manager) Approve(ctx context.Context, id, user uuid.UUID) error {
 	if c == nil {
 		return fmt.Errorf("conversation not found")
 	}
-	if c.OwnerID == nil || *c.OwnerID != user {
+	if c.OwnerID == nil || (!administrator && *c.OwnerID != actor) {
 		return fmt.Errorf("conversation not authorized")
+	}
+	if administrator {
+		allowed, err := m.pgConvRepo.HasCurrentBuyerGrant(ctx, id)
+		if err != nil { return err }
+		if !allowed { return fmt.Errorf("buyer account, interest, or source grant is no longer active") }
 	}
 	if c.State != domain.ConvStateAwaitingApproval {
 		return fmt.Errorf("conversation is not awaiting approval")
@@ -85,7 +99,7 @@ func (m *Manager) Approve(ctx context.Context, id, user uuid.UUID) error {
 	}
 	now := time.Now().UTC()
 	c.ApprovedAt = &now
-	c.ApprovedByUserID = &user
+	c.ApprovedByUserID = &actor
 	c.State = domain.ConvStateAwaitingConsent
 	return m.pgConvRepo.SaveProgress(ctx, c, "سلام! من دستیار خودکار پرسو هستم. برای تکمیل مشخصات آگهی شما مایل هستید چند سؤال کوتاه بپرسم؟")
 }
